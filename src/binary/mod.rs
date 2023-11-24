@@ -9,9 +9,12 @@ pub struct Binary(Vec<u8>);
 impl Binary {
     // at will return the primitive type (btoken or reference) at the given location
     fn at(&self, index: usize) -> Option<PrimitiveToken> {
-        let t = self.0.first()?;
+        let t = self.0.get(index)?;
         if *t == TYPE_REFERENCE {
-            Some(PrimitiveToken::Reference(self.0.get(0..5)?.into()))
+            println!("{:?}", self.0.get(index..index + 5));
+            Some(PrimitiveToken::Reference(
+                self.0.get(index..index + 5)?.into(),
+            ))
         } else {
             let length = self
                 .0
@@ -23,14 +26,25 @@ impl Binary {
         }
     }
 
-    // token_at will return the token at the given location. If the index is
-    // a reference it will resolve to the btoken.
-    pub fn token_at(&self, index: usize) -> Option<BToken> {
+    fn token_at_depth(&self, index: usize, depth: u8) -> Option<BToken> {
+        if depth > 20 {
+            return None;
+        }
+
         let tok = self.at(index)?;
         match tok {
-            PrimitiveToken::Reference(reference) => self.token_at(reference.get_index()? as usize),
+            PrimitiveToken::Reference(reference) => {
+                self.token_at_depth(reference.get_index()? as usize, depth + 1)
+            }
             PrimitiveToken::Token(tok) => Some(tok),
         }
+    }
+
+    // token_at will return the token at the given location. If the index is
+    // a reference it will resolve to the btoken. At most you can traverse 20
+    // references before giving up trying to find the BToken
+    pub fn token_at(&self, index: usize) -> Option<BToken> {
+        self.token_at_depth(index, 0)
     }
 }
 
@@ -61,6 +75,7 @@ enum PrimitiveToken<'a> {
 // its use is to act as a modifible location in memory
 // 0x0 u8 type
 // 0x0, 0x0, 0x0, 0x0 u32 pointer to location
+#[derive(PartialEq, Debug)]
 pub struct BReference<'a>(&'a [u8]);
 
 impl<'a> BReference<'a> {
@@ -85,6 +100,7 @@ impl<'a> From<&'a [u8]> for BReference<'a> {
 // if the parent offset is 0 it is assumed to be
 // unset. The first byte in a dapt packet is 0x0
 // to ensure an offset of 0 is wrong.
+#[derive(PartialEq, Debug)]
 pub struct BToken<'a>(&'a [u8]);
 
 impl<'a> From<&'a [u8]> for BToken<'a> {
@@ -138,5 +154,34 @@ mod test {
         let tok = BToken(&b);
         assert_eq!(tok.get_parent_index(), Some(2));
         assert_eq!(tok.get_reference_index(), Some(1));
+    }
+
+    #[test]
+    fn test_binary() {
+        let b = vec![
+            TYPE_REFERENCE, // type
+            0x0,
+            0x0,
+            0x0,
+            0x5,            // index at 5
+            TYPE_REFERENCE, // type
+            0x0,
+            0x0,
+            0x0,
+            0xa, // index at 5
+            0x1, // type of btoken
+            0x0,
+            0xb, // length of 11
+            0x0,
+            0x0,
+            0x0,
+            0x5, // reference index of 1
+            0x0,
+            0x0,
+            0x0,
+            0x0, // parent index of 0
+        ];
+        let bin = Binary(b.clone());
+        assert_eq!(bin.token_at(0), Some(BToken(&b[10..10 + 11])));
     }
 }
