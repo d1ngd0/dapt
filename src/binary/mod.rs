@@ -1,6 +1,7 @@
 use byteorder::{BigEndian, ByteOrder};
 use std::convert::From;
 use std::default::Default;
+use std::ops::Deref;
 
 static TYPE_REFERENCE: u8 = 0;
 static REFERENCE_LENGTH: usize = 5;
@@ -162,6 +163,14 @@ impl<'a> From<&'a [u8]> for BToken<'a> {
     }
 }
 
+impl<'a> Deref for BToken<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
 impl<'a> BToken<'a> {
     fn new(
         tpe: u8,
@@ -220,6 +229,13 @@ impl<'a> BToken<'a> {
 
     pub fn get_content(&self) -> &[u8] {
         self.0.get(CONTENT_OFFSET..).unwrap()
+    }
+
+    pub fn get_type(&self) -> u8 {
+        *self
+            .0
+            .first()
+            .expect("btoken was empty when fetching type.")
     }
 }
 
