@@ -1,6 +1,6 @@
 mod binary;
-mod error;
-mod value;
+pub mod error;
+pub mod value;
 
 #[cfg(test)]
 mod tests {}
