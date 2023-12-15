@@ -3,34 +3,37 @@ use std::default::Default;
 use std::mem;
 use std::ops::Deref;
 
-use crate::value::{Deserialize, Serialize};
+use crate::{
+    error::{DaptResult, Error},
+    value::{Deserialize, Serialize},
+};
 
-static TYPE_REFERENCE: u8 = 0;
-static TYPE_COLLECTION: u8 = 1;
-static TYPE_KEYVAL: u8 = 2;
-static TYPE_OBJECT: u8 = 3;
+const TYPE_REFERENCE: u8 = 0;
+const TYPE_COLLECTION: u8 = 1;
+const TYPE_KEYVAL: u8 = 2;
+const TYPE_OBJECT: u8 = 3;
 
-static REFERENCE_LENGTH: usize = 5;
-static MAX_REFERENCE_DEPTH: isize = 20;
+const REFERENCE_LENGTH: usize = 5;
+const MAX_REFERENCE_DEPTH: isize = 20;
 
-static TYPE_OFFSET: usize = 0;
-static TYPE_OFFSET_END: usize = TYPE_OFFSET + 1;
+const TYPE_OFFSET: usize = 0;
+const TYPE_OFFSET_END: usize = TYPE_OFFSET + 1;
 
-static LENGTH_OFFSET: usize = TYPE_OFFSET_END;
-static LENGTH_OFFSET_END: usize = LENGTH_OFFSET + 2;
+const LENGTH_OFFSET: usize = TYPE_OFFSET_END;
+const LENGTH_OFFSET_END: usize = LENGTH_OFFSET + 2;
 
-static REFERENCE_OFFSET: usize = LENGTH_OFFSET_END;
-static REFERENCE_OFFSET_END: usize = REFERENCE_OFFSET + 4;
+const REFERENCE_OFFSET: usize = LENGTH_OFFSET_END;
+const REFERENCE_OFFSET_END: usize = REFERENCE_OFFSET + 4;
 
-static PARENT_OFFSET: usize = REFERENCE_OFFSET_END;
-static PARENT_OFFSET_END: usize = PARENT_OFFSET + 4;
+const PARENT_OFFSET: usize = REFERENCE_OFFSET_END;
+const PARENT_OFFSET_END: usize = PARENT_OFFSET + 4;
 
-static CONTENT_OFFSET: usize = PARENT_OFFSET_END;
+const CONTENT_OFFSET: usize = PARENT_OFFSET_END;
 
-static PTR_OFFSET: usize = TYPE_OFFSET_END;
-static PTR_OFFSET_END: usize = PTR_OFFSET + 4;
+const PTR_OFFSET: usize = TYPE_OFFSET_END;
+const PTR_OFFSET_END: usize = PTR_OFFSET + 4;
 
-static ADD_TOKEN_HEADER_LENGTH: usize = CONTENT_OFFSET + REFERENCE_LENGTH;
+const ADD_TOKEN_HEADER_LENGTH: usize = CONTENT_OFFSET + REFERENCE_LENGTH;
 
 pub struct Binary(Vec<u8>);
 
@@ -156,10 +159,18 @@ impl Binary {
         // to interface with the binary we have directly to return the
         // underlying type.
         let index = self.resolve(index, MAX_REFERENCE_DEPTH)?;
+        let token = self.token_at(index).unwrap();
 
-        if self.token_at(index).unwrap().get_type() != T::type_of() {
-            return None;
-        }
+        match token.get_type() {
+            TYPE_KEYVAL => {
+                let key_value: BKeyValue = token.try_into().ok()?;
+                return self.get::<T>(key_value.child_index() as usize);
+            }
+            _ if token.get_type() != T::type_of() => {
+                return None;
+            }
+            _ => {}
+        };
 
         let (s, e) = self.token_bounds(index).unwrap();
         let buf = self.0.get(s..e).unwrap();
@@ -316,15 +327,18 @@ impl<'a> BToken<'a> {
 #[derive(PartialEq, Debug)]
 pub struct BCollection<'a>(&'a [u8]);
 
-impl<'a> From<&'a [u8]> for BCollection<'a> {
-    fn from(b: &'a [u8]) -> Self {
-        BCollection(b)
-    }
-}
+impl<'a> TryFrom<BToken<'a>> for BCollection<'a> {
+    type Error = Error;
 
-impl<'a> From<BToken<'a>> for BCollection<'a> {
-    fn from(b: BToken<'a>) -> Self {
-        BCollection(b.0)
+    fn try_from(b: BToken<'a>) -> DaptResult<Self> {
+        if b.get_type() != TYPE_COLLECTION {
+            return Err(Error::TypeMismatch(
+                b.get_type(),
+                "Expected BCollection".into(),
+            ));
+        }
+
+        Ok(BCollection(b.0))
     }
 }
 
@@ -361,13 +375,53 @@ impl<'a> BCollection<'a> {
         Some(child_index as usize)
     }
 
+    fn child_key(&self, key: &str, b: &Binary) -> Option<usize> {
+        for i in 0..self.length() {
+            let child_content_index = self.child_index(i)?;
+            let child: BKeyValue = b.token_at(child_content_index)?.try_into().ok()?;
+            println!("{} == {}", child.key(), key);
+            if child.key() == key {
+                println!("in here");
+                return Some(child_content_index);
+            }
+        }
+
+        None
+    }
+
     fn length(&self) -> usize {
         (self.0.len() - CONTENT_OFFSET) / mem::size_of::<u32>()
     }
 }
 
+#[derive(PartialEq, Debug)]
+pub struct BKeyValue<'a>(&'a [u8]);
+
+impl<'a> TryFrom<BToken<'a>> for BKeyValue<'a> {
+    type Error = Error;
+
+    fn try_from(b: BToken<'a>) -> DaptResult<Self> {
+        if b.get_type() != TYPE_KEYVAL {
+            return Err(Error::TypeMismatch(
+                b.get_type(),
+                "Expected BKeyValue".into(),
+            ));
+        }
+
+        Ok(BKeyValue(b.0))
+    }
+}
+
+impl<'a> Deref for BKeyValue<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
 impl<'a> BKeyValue<'a> {
-    fn create(parent_index: Option<u32>, child: u32, key: &str, b: &mut Binary) -> usize {
+    pub fn create(parent_index: Option<u32>, child: u32, key: &str, b: &mut Binary) -> usize {
         let size = mem::size_of::<u32>() + key.len();
         let (index, token_index) = b.add_sized(parent_index, size, TYPE_KEYVAL);
 
@@ -385,6 +439,20 @@ impl<'a> BKeyValue<'a> {
         );
 
         index
+    }
+
+    fn child_index(&self) -> u32 {
+        u32::deserialize(
+            self.get(CONTENT_OFFSET..CONTENT_OFFSET + mem::size_of::<u32>())
+                .expect("bKeyValue is not the correct size"),
+        )
+    }
+
+    fn key(&'a self) -> &'a str {
+        let val_offset = CONTENT_OFFSET + mem::size_of::<u32>();
+        <&'a str as Deserialize>::deserialize(
+            self.get(val_offset..).expect("invalid sized keyvalue"),
+        )
     }
 }
 
@@ -450,10 +518,35 @@ mod test {
             children.push(b.add(None, i as usize) as u32);
         }
         let index = BCollection::create(None, &children[..], &mut b);
-        let array: BCollection = b.token_at(index).unwrap().into();
+        let array: BCollection = b
+            .token_at(index)
+            .unwrap()
+            .try_into()
+            .expect("this should be a bcollection, we just made it");
         for i in 0..array.length() {
             println!("{:?}", array.child_index(i));
             assert_eq!(i, b.get::<usize>(array.child_index(i).unwrap()).unwrap())
+        }
+    }
+
+    #[test]
+    fn test_object() {
+        let mut children: Vec<u32> = vec![];
+        let mut b = Binary::default();
+
+        for i in 0..10 {
+            let val_index = b.add(None, i as usize) as u32;
+            let key_index = BKeyValue::create(None, val_index, &format!("child_{i}"), &mut b);
+            children.push(key_index as u32);
+        }
+
+        let index = BCollection::create(None, &children, &mut b);
+        let map: BCollection = b.token_at(index).unwrap().try_into().unwrap();
+
+        for i in 0..map.length() {
+            let child_index = map.child_key(&format!("child_{i}"), &b).unwrap();
+            println!("{}", b.token_at(child_index).unwrap().get_type());
+            assert_eq!(b.get::<usize>(child_index).unwrap(), i);
         }
     }
 }
