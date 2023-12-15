@@ -1,11 +1,15 @@
-use byteorder::{BigEndian, ByteOrder};
 use std::convert::From;
 use std::default::Default;
+use std::mem;
 use std::ops::Deref;
 
 use crate::value::{Deserialize, Serialize};
 
 static TYPE_REFERENCE: u8 = 0;
+static TYPE_COLLECTION: u8 = 1;
+static TYPE_KEYVAL: u8 = 2;
+static TYPE_OBJECT: u8 = 3;
+
 static REFERENCE_LENGTH: usize = 5;
 static MAX_REFERENCE_DEPTH: isize = 20;
 
@@ -53,7 +57,7 @@ impl Binary {
             let length = self
                 .0
                 .get(index + LENGTH_OFFSET..index + LENGTH_OFFSET_END)?;
-            let length = BigEndian::read_u16(length);
+            let length = u16::deserialize(length);
             Some((index, index + length as usize))
         }
     }
@@ -73,9 +77,41 @@ impl Binary {
         }
     }
 
+    pub fn add_sized(
+        &mut self,
+        parent: Option<u32>,
+        content_size: usize,
+        tpe: u8,
+    ) -> (usize, usize) {
+        let index = self.0.len();
+        let token_index = (index + REFERENCE_LENGTH) as u32;
+
+        // TODO there is likely an unsafe way of doing this which will speed things up.
+        // We don't need to preset the values which we do here
+        self.0
+            .resize(index + ADD_TOKEN_HEADER_LENGTH + content_size, 0);
+
+        BReference::new(
+            token_index,
+            self.0.get_mut(index..index + REFERENCE_LENGTH).unwrap(),
+        );
+
+        let _ = BToken::new(
+            index as u32,
+            parent,
+            content_size,
+            tpe,
+            self.0
+                .get_mut(index + REFERENCE_LENGTH..index + ADD_TOKEN_HEADER_LENGTH + content_size) // intentionally explicit in end
+                .unwrap(),
+        );
+
+        (index, token_index as usize)
+    }
+
     // add puts a new token and breference into the binary. It then returns the
     // index of the breference for future use
-    pub fn add<T: Serialize>(&mut self, parent: Option<u32>, content: &T) -> usize {
+    pub fn add<T: Serialize>(&mut self, parent: Option<u32>, content: T) -> usize {
         let index = self.0.len();
         let token_index = (index + REFERENCE_LENGTH) as u32;
         let content_size = content.size_of();
@@ -90,10 +126,21 @@ impl Binary {
             self.0.get_mut(index..index + REFERENCE_LENGTH).unwrap(),
         );
 
+        // copy the content into the btoken
+        let tpe = content.serialize(
+            self.0
+                .get_mut(
+                    token_index as usize + CONTENT_OFFSET
+                        ..token_index as usize + CONTENT_OFFSET + content.size_of(),
+                )
+                .expect("btoken not large enough"),
+        );
+
         BToken::new(
             index as u32,
             parent,
-            content,
+            content.size_of(),
+            tpe,
             self.0
                 .get_mut(index + REFERENCE_LENGTH..index + ADD_TOKEN_HEADER_LENGTH + content_size) // intentionally explicit in end
                 .unwrap(),
@@ -138,10 +185,10 @@ impl<'a> BReference<'a> {
     fn new(index: u32, buf: &'a mut [u8]) -> BReference<'a> {
         let t = buf.first_mut().expect("breference buf empty! can't fill.");
         *t = TYPE_REFERENCE;
-        BigEndian::write_u32(
+
+        index.serialize(
             buf.get_mut(PTR_OFFSET..PTR_OFFSET_END)
                 .expect("breference buf not large enough"),
-            index,
         );
 
         BReference(buf)
@@ -149,7 +196,7 @@ impl<'a> BReference<'a> {
 
     fn get_index(&self) -> Option<u32> {
         let buf = self.0.get(PTR_OFFSET..PTR_OFFSET_END)?;
-        let num = BigEndian::read_u32(buf);
+        let num = u32::deserialize(buf);
 
         if num == 0 {
             None
@@ -192,59 +239,49 @@ impl<'a> Deref for BToken<'a> {
 }
 
 impl<'a> BToken<'a> {
-    fn new<T: Serialize>(
+    fn new(
         reference_index: u32,
         parent_index: Option<u32>,
-        content: &T,
+        content_length: usize,
+        tpe: u8,
         buf: &'a mut [u8],
     ) -> BToken<'a> {
-        BigEndian::write_u16(
-            buf.get_mut(LENGTH_OFFSET..LENGTH_OFFSET_END)
-                .expect("btoken buf not large enough"),
-            (CONTENT_OFFSET + content.size_of()) as u16,
-        );
-
-        BigEndian::write_u32(
-            buf.get_mut(REFERENCE_OFFSET..REFERENCE_OFFSET_END)
-                .expect("btoken not large enough"),
-            reference_index,
-        );
-
-        // write the parent, if the parent was none we can
-        // write 0
-        BigEndian::write_u32(
-            buf.get_mut(PARENT_OFFSET..PARENT_OFFSET_END)
-                .expect("btoken not large enough"),
-            parent_index.unwrap_or(0),
-        );
-
-        // copy the content into the btoken
-        let tpe = content.serialize(
-            buf.get_mut(CONTENT_OFFSET..CONTENT_OFFSET + content.size_of())
-                .expect("btoken not large enough"),
-        );
-
         let t = buf
             .first_mut()
             .expect("the very btoken buf empty! can't fill.");
         *t = tpe;
 
+        let size = (CONTENT_OFFSET + content_length) as u16;
+        size.serialize(
+            buf.get_mut(LENGTH_OFFSET..LENGTH_OFFSET_END)
+                .expect("btoken buf not large enough"),
+        );
+
+        reference_index.serialize(
+            buf.get_mut(REFERENCE_OFFSET..REFERENCE_OFFSET_END)
+                .expect("btoken not large enough"),
+        );
+
+        parent_index.unwrap_or(0).serialize(
+            buf.get_mut(PARENT_OFFSET..PARENT_OFFSET_END)
+                .expect("btoken not large enough"),
+        );
+
         BToken(buf)
     }
 
     pub fn get_parent_index(&self) -> Option<u32> {
-        let b = self.0.get(PARENT_OFFSET..PARENT_OFFSET_END)?;
-        let num = BigEndian::read_u32(b);
-        if num == 0 {
+        let result = u32::deserialize(self.0.get(PARENT_OFFSET..PARENT_OFFSET_END)?);
+
+        if result == 0 {
             None
         } else {
-            Some(num)
+            Some(result)
         }
     }
 
     pub fn get_reference_index(&self) -> u32 {
-        let b = self.0.get(REFERENCE_OFFSET..REFERENCE_OFFSET_END).unwrap();
-        BigEndian::read_u32(b)
+        u32::deserialize(self.0.get(REFERENCE_OFFSET..REFERENCE_OFFSET_END).unwrap())
     }
 
     pub fn get_type(&self) -> u8 {
@@ -252,6 +289,102 @@ impl<'a> BToken<'a> {
             .0
             .first()
             .expect("btoken was empty when fetching type.")
+    }
+
+    pub fn set_parent(buf: &mut Binary, index: usize, parent_index: Option<u32>) {
+        let index = buf.resolve(index, MAX_REFERENCE_DEPTH);
+        if index.is_none() {
+            return;
+        }
+
+        let index = index.unwrap();
+        let (s, _) = buf.token_bounds(index).unwrap();
+        parent_index.unwrap_or(0).serialize(
+            buf.0
+                .get_mut(s + PARENT_OFFSET..s + PARENT_OFFSET_END)
+                .expect("parent is unexpected size"),
+        );
+    }
+}
+
+// BArray houses the links to all the Values within the array
+// It's structure is a superset of BToken Where the contents
+// are u32 pointers to the locations of values for the array
+// these pointers can point to any Serialize and Deserialized
+// value, BObjects or BArray. The values within the array do
+// not need to house the same type.
+#[derive(PartialEq, Debug)]
+pub struct BCollection<'a>(&'a [u8]);
+
+impl<'a> From<&'a [u8]> for BCollection<'a> {
+    fn from(b: &'a [u8]) -> Self {
+        BCollection(b)
+    }
+}
+
+impl<'a> From<BToken<'a>> for BCollection<'a> {
+    fn from(b: BToken<'a>) -> Self {
+        BCollection(b.0)
+    }
+}
+
+impl<'a> Deref for BCollection<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a> BCollection<'a> {
+    fn create(parent_index: Option<u32>, children: &[u32], b: &mut Binary) -> usize {
+        let size = mem::size_of::<u32>();
+        let (index, token_index) =
+            b.add_sized(parent_index, size * children.len(), TYPE_COLLECTION);
+
+        for (i, v) in children.iter().enumerate() {
+            let child_content_index = token_index + CONTENT_OFFSET + (i * size);
+            v.serialize(
+                b.0.get_mut(child_content_index..child_content_index + 4)
+                    .expect("invalid sized object"),
+            );
+
+            BToken::set_parent(b, *v as usize, Some(index as u32));
+        }
+
+        index
+    }
+
+    fn child_index(&self, index: usize) -> Option<usize> {
+        let index = CONTENT_OFFSET + (index * mem::size_of::<u32>());
+        let child_index = u32::deserialize(self.get(index..index + mem::size_of::<u32>())?);
+        Some(child_index as usize)
+    }
+
+    fn length(&self) -> usize {
+        (self.0.len() - CONTENT_OFFSET) / mem::size_of::<u32>()
+    }
+}
+
+impl<'a> BKeyValue<'a> {
+    fn create(parent_index: Option<u32>, child: u32, key: &str, b: &mut Binary) -> usize {
+        let size = mem::size_of::<u32>() + key.len();
+        let (index, token_index) = b.add_sized(parent_index, size, TYPE_KEYVAL);
+
+        let child_offset = token_index + CONTENT_OFFSET;
+        let key_offset = child_offset + mem::size_of::<u32>();
+
+        child.serialize(
+            b.0.get_mut(child_offset..key_offset)
+                .expect("invalid sized object"),
+        );
+
+        key.serialize(
+            b.0.get_mut(key_offset..key_offset + key.len())
+                .expect("invalid sized object"),
+        );
+
+        index
     }
 }
 
@@ -261,58 +394,25 @@ mod test {
 
     #[test]
     fn test_breference() {
-        let b = vec![TYPE_REFERENCE, 0x0, 0x0, 0x0, 0x1];
-        let bref = BReference(&b);
+        let mut b: [u8; 5] = [0x0; 5];
+        let bref = BReference::new(1, &mut b);
         assert_eq!(bref.get_index().unwrap(), 1);
     }
 
     #[test]
     fn test_btoken() {
-        let b = vec![
-            0x1, // type
-            0x0, 0xb, // length of 11
-            0x0, 0x0, 0x0, 0x1, // reference index of 1
-            0x0, 0x0, 0x0, 0x2, // parent index of 2
-        ];
-        let tok = BToken(&b);
+        let mut b: [u8; 11] = [0; 11];
+        let tok = BToken::new(1, Some(2), 0, 1, &mut b);
+        assert_eq!(tok.get_type(), 1);
         assert_eq!(tok.get_parent_index(), Some(2));
         assert_eq!(tok.get_reference_index(), 1);
-    }
-
-    #[test]
-    fn test_binary() {
-        let b = vec![
-            TYPE_REFERENCE, // type
-            0x0,
-            0x0,
-            0x0,
-            0x5,            // index at 5
-            TYPE_REFERENCE, // type
-            0x0,
-            0x0,
-            0x0,
-            0xa, // index at 5
-            0x1, // type of btoken
-            0x0,
-            0xb, // length of 11
-            0x0,
-            0x0,
-            0x0,
-            0x5, // reference index of 1
-            0x0,
-            0x0,
-            0x0,
-            0x0, // parent index of 0
-        ];
-        let bin = Binary(b.clone());
-        assert_eq!(bin.token_at(0), Some(BToken(&b[10..10 + 11])));
     }
 
     macro_rules! test_binary_obj {
         ($type:ty, $value:expr) => {{
             let mut b = Binary::default();
             let val: $type = $value;
-            let i = b.add(None, &val);
+            let i = b.add(None, val);
             let new_val: $type = b.get::<$type>(i).unwrap();
             assert_eq!(val, new_val);
         }};
@@ -322,7 +422,7 @@ mod test {
         ($value:expr) => {{
             let mut b = Binary::default();
             let val = String::from($value);
-            let i = b.add(None, &val.as_str());
+            let i = b.add(None, val.as_str());
             let new_val: &str = b.get::<&str>(i).unwrap();
             assert_eq!(val.as_str(), new_val);
         }};
@@ -340,5 +440,20 @@ mod test {
     fn test_binary_strings() {
         test_string_obj!("hello");
         test_string_obj!("This is a very long string that is quite long");
+    }
+
+    #[test]
+    fn test_collection() {
+        let mut children: Vec<u32> = vec![];
+        let mut b = Binary::default();
+        for i in 0..10 {
+            children.push(b.add(None, i as usize) as u32);
+        }
+        let index = BCollection::create(None, &children[..], &mut b);
+        let array: BCollection = b.token_at(index).unwrap().into();
+        for i in 0..array.length() {
+            println!("{:?}", array.child_index(i));
+            assert_eq!(i, b.get::<usize>(array.child_index(i).unwrap()).unwrap())
+        }
     }
 }

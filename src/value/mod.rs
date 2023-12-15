@@ -18,11 +18,13 @@ const TYPE_U8: u8 = 4;
 const TYPE_U16: u8 = 5;
 const TYPE_U32: u8 = 6;
 const TYPE_U64: u8 = 7;
-const TYPE_I8: u8 = 8;
-const TYPE_I16: u8 = 9;
-const TYPE_I32: u8 = 10;
-const TYPE_I64: u8 = 11;
-const TYPE_STR: u8 = 12;
+const TYPE_USIZE: u8 = 8;
+const TYPE_I8: u8 = 9;
+const TYPE_I16: u8 = 10;
+const TYPE_I32: u8 = 11;
+const TYPE_I64: u8 = 12;
+const TYPE_ISIZE: u8 = 13;
+const TYPE_STR: u8 = 14;
 
 impl Serialize for u8 {
     fn size_of(&self) -> usize {
@@ -87,10 +89,12 @@ macro_rules! impl_serialize_deserialize {
 impl_serialize_deserialize!(u16, TYPE_U16);
 impl_serialize_deserialize!(u32, TYPE_U32);
 impl_serialize_deserialize!(u64, TYPE_U64);
+impl_serialize_deserialize!(usize, TYPE_USIZE);
 impl_serialize_deserialize!(i8, TYPE_I8);
 impl_serialize_deserialize!(i16, TYPE_I16);
 impl_serialize_deserialize!(i32, TYPE_I32);
 impl_serialize_deserialize!(i64, TYPE_I64);
+impl_serialize_deserialize!(isize, TYPE_ISIZE);
 
 impl Serialize for &str {
     fn size_of(&self) -> usize {
