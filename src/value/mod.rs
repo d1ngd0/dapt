@@ -19,21 +19,21 @@ pub trait Deserialize<'a> {
     fn deserialize(buf: &'a [u8]) -> Self::Item;
 }
 
-const TYPE_U8: u8 = 4;
-const TYPE_U16: u8 = 5;
-const TYPE_U32: u8 = 6;
-const TYPE_U64: u8 = 7;
-const TYPE_U128: u8 = 8;
-const TYPE_USIZE: u8 = 9;
-const TYPE_I8: u8 = 10;
-const TYPE_I16: u8 = 11;
-const TYPE_I32: u8 = 12;
-const TYPE_I64: u8 = 13;
-const TYPE_I128: u8 = 14;
-const TYPE_ISIZE: u8 = 15;
-const TYPE_STR: u8 = 16;
-const TYPE_F32: u8 = 17;
-const TYPE_F64: u8 = 18;
+pub const TYPE_U8: u8 = 4;
+pub const TYPE_U16: u8 = 5;
+pub const TYPE_U32: u8 = 6;
+pub const TYPE_U64: u8 = 7;
+pub const TYPE_U128: u8 = 8;
+pub const TYPE_USIZE: u8 = 9;
+pub const TYPE_I8: u8 = 10;
+pub const TYPE_I16: u8 = 11;
+pub const TYPE_I32: u8 = 12;
+pub const TYPE_I64: u8 = 13;
+pub const TYPE_I128: u8 = 14;
+pub const TYPE_ISIZE: u8 = 15;
+pub const TYPE_STR: u8 = 16;
+pub const TYPE_F32: u8 = 17;
+pub const TYPE_F64: u8 = 18;
 
 impl Serialize for u8 {
     fn size_of(&self) -> usize {
@@ -211,3 +211,96 @@ impl_number_into!(i128);
 impl_number_into!(isize);
 impl_number_into!(f32);
 impl_number_into!(f64);
+
+pub enum Any<'a> {
+    USize(usize),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    ISize(isize),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    I128(i128),
+    F32(f32),
+    F64(f64),
+    Str(&'a str),
+}
+
+impl<'a> Any<'a> {
+    pub fn new(b: &'a Binary, index: usize) -> Option<Any<'a>> {
+        let tpe = b.type_at(index)?;
+        match tpe {
+            TYPE_U8 => Some(Any::U8(b.get::<u8>(index).unwrap())),
+            TYPE_U16 => Some(Any::U16(b.get::<u16>(index).unwrap())),
+            TYPE_U32 => Some(Any::U32(b.get::<u32>(index).unwrap())),
+            TYPE_U64 => Some(Any::U64(b.get::<u64>(index).unwrap())),
+            TYPE_U128 => Some(Any::U128(b.get::<u128>(index).unwrap())),
+            TYPE_USIZE => Some(Any::USize(b.get::<usize>(index).unwrap())),
+            TYPE_I8 => Some(Any::I8(b.get::<i8>(index).unwrap())),
+            TYPE_I16 => Some(Any::I16(b.get::<i16>(index).unwrap())),
+            TYPE_I32 => Some(Any::I32(b.get::<i32>(index).unwrap())),
+            TYPE_I64 => Some(Any::I64(b.get::<i64>(index).unwrap())),
+            TYPE_I128 => Some(Any::I128(b.get::<i128>(index).unwrap())),
+            TYPE_ISIZE => Some(Any::ISize(b.get::<isize>(index).unwrap())),
+            TYPE_F32 => Some(Any::F32(b.get::<f32>(index).unwrap())),
+            TYPE_F64 => Some(Any::F64(b.get::<f64>(index).unwrap())),
+            TYPE_STR => Some(Any::Str(b.get::<&'a str>(index).unwrap())),
+            _ => None,
+        }
+    }
+}
+
+impl From<Any<'_>> for String {
+    fn from(value: Any) -> Self {
+        match value {
+            Any::Str(val) => String::from(val),
+            Any::U8(val) => val.to_string(),
+            Any::U16(val) => val.to_string(),
+            Any::U32(val) => val.to_string(),
+            Any::U64(val) => val.to_string(),
+            Any::U128(val) => val.to_string(),
+            Any::USize(val) => val.to_string(),
+            Any::I8(val) => val.to_string(),
+            Any::I16(val) => val.to_string(),
+            Any::I32(val) => val.to_string(),
+            Any::I64(val) => val.to_string(),
+            Any::I128(val) => val.to_string(),
+            Any::ISize(val) => val.to_string(),
+            Any::F32(val) => val.to_string(),
+            Any::F64(val) => val.to_string(),
+        }
+    }
+}
+
+impl TryFrom<Any<'_>> for Number {
+    type Error = Error;
+    fn try_from(value: Any) -> Result<Self, Self::Error> {
+        match value {
+            Any::Str(val) => {
+                if val.contains('.') {
+                    Ok(Number::F64(val.parse()?))
+                } else {
+                    Ok(Number::ISize(val.parse()?))
+                }
+            }
+            Any::U8(val) => Ok(Number::U8(val)),
+            Any::U16(val) => Ok(Number::U16(val)),
+            Any::U32(val) => Ok(Number::U32(val)),
+            Any::U64(val) => Ok(Number::U64(val)),
+            Any::U128(val) => Ok(Number::U128(val)),
+            Any::USize(val) => Ok(Number::USize(val)),
+            Any::I8(val) => Ok(Number::I8(val)),
+            Any::I16(val) => Ok(Number::I16(val)),
+            Any::I32(val) => Ok(Number::I32(val)),
+            Any::I64(val) => Ok(Number::I64(val)),
+            Any::I128(val) => Ok(Number::I128(val)),
+            Any::ISize(val) => Ok(Number::ISize(val)),
+            Any::F32(val) => Ok(Number::F32(val)),
+            Any::F64(val) => Ok(Number::F64(val)),
+        }
+    }
+}

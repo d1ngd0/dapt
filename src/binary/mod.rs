@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use crate::{
     error::{DaptResult, Error},
-    value::{Deserialize, Number, Serialize},
+    value::{Any, Deserialize, Number, Serialize, TYPE_STR},
 };
 
 const TYPE_REFERENCE: u8 = 0;
@@ -184,12 +184,31 @@ impl Binary {
         Some(T::deserialize(buf.get(CONTENT_OFFSET..).unwrap()))
     }
 
+    // if you know the value is a string you can get it without
+    // taking a heap allocation and reference that value from
+    // within the binary. If the value is not a str it will return
+    // None
+    pub fn str<'a>(&'a self, index: usize) -> Option<&'a str> {
+        let index = self.val_at(index)?;
+        if self.type_at(index)? != TYPE_STR {
+            return None;
+        }
+
+        self.get::<&'a str>(index)
+    }
+
+    // Number returns an error if the underlying type is not a Number
     pub fn number(&self, index: usize) -> DaptResult<Number> {
         let index = self.val_at(index).ok_or(Error::InvalidIndex(
             "invalid index when finding number".into(),
         ))?;
 
         Number::new(self, index)
+    }
+
+    pub fn any(&self, index: usize) -> Option<Any> {
+        let index = self.val_at(index)?;
+        Any::new(self, index)
     }
 }
 
@@ -566,5 +585,10 @@ mod test {
             let child_val: usize = b.number(child_index).unwrap().into();
             assert_eq!(child_val, i);
         }
+    }
+
+    #[test]
+    fn test_any() {
+        todo!();
     }
 }
