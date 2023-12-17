@@ -5,13 +5,12 @@ use std::ops::Deref;
 
 use crate::{
     error::{DaptResult, Error},
-    value::{Deserialize, Serialize},
+    value::{Deserialize, Number, Serialize},
 };
 
 const TYPE_REFERENCE: u8 = 0;
 const TYPE_COLLECTION: u8 = 1;
 const TYPE_KEYVAL: u8 = 2;
-const TYPE_OBJECT: u8 = 3;
 
 const REFERENCE_LENGTH: usize = 5;
 const MAX_REFERENCE_DEPTH: isize = 20;
@@ -152,29 +151,45 @@ impl Binary {
         index
     }
 
-    pub fn get<'a, T: Deserialize<'a>>(&'a self, index: usize) -> Option<T::Item> {
-        // why not use the btoken get_content function? well because
-        // the borrow checker doesn't understand that the underlying
-        // lifetime is longer than the btoken we create, so we have
-        // to interface with the binary we have directly to return the
-        // underlying type.
+    // val_at will grab the value for the current index. If the current
+    // pointer is a key value, it will
+    pub fn val_at(&self, index: usize) -> Option<usize> {
         let index = self.resolve(index, MAX_REFERENCE_DEPTH)?;
         let token = self.token_at(index).unwrap();
 
         match token.get_type() {
             TYPE_KEYVAL => {
                 let key_value: BKeyValue = token.try_into().ok()?;
-                return self.get::<T>(key_value.child_index() as usize);
+                self.val_at(key_value.child_index() as usize)
             }
-            _ if token.get_type() != T::type_of() => {
-                return None;
-            }
-            _ => {}
-        };
+            TYPE_COLLECTION => None,
+            _ => Some(index),
+        }
+    }
 
+    pub fn type_at(&self, index: usize) -> Option<u8> {
+        let index = self.resolve(index, MAX_REFERENCE_DEPTH)?;
+        Some(*self.0.get(index)?)
+    }
+
+    pub fn get<'a, T: Deserialize<'a>>(&'a self, index: usize) -> Option<T::Item> {
+        // why not use the btoken get_content function? well because
+        // the borrow checker doesn't understand that the underlying
+        // lifetime is longer than the btoken we create, so we have
+        // to interface with the binary we have directly to return the
+        // underlying type.
+        let index = self.val_at(index)?;
         let (s, e) = self.token_bounds(index).unwrap();
         let buf = self.0.get(s..e).unwrap();
         Some(T::deserialize(buf.get(CONTENT_OFFSET..).unwrap()))
+    }
+
+    pub fn number(&self, index: usize) -> DaptResult<Number> {
+        let index = self.val_at(index).ok_or(Error::InvalidIndex(
+            "invalid index when finding number".into(),
+        ))?;
+
+        Number::new(self, index)
     }
 }
 
@@ -433,6 +448,8 @@ impl<'a> BKeyValue<'a> {
                 .expect("invalid sized object"),
         );
 
+        BToken::set_parent(b, child as usize, Some(index as u32));
+
         key.serialize(
             b.0.get_mut(key_offset..key_offset + key.len())
                 .expect("invalid sized object"),
@@ -535,7 +552,7 @@ mod test {
         let mut b = Binary::default();
 
         for i in 0..10 {
-            let val_index = b.add(None, i as usize) as u32;
+            let val_index = b.add(None, i) as u32;
             let key_index = BKeyValue::create(None, val_index, &format!("child_{i}"), &mut b);
             children.push(key_index as u32);
         }
@@ -546,7 +563,8 @@ mod test {
         for i in 0..map.length() {
             let child_index = map.child_key(&format!("child_{i}"), &b).unwrap();
             println!("{}", b.token_at(child_index).unwrap().get_type());
-            assert_eq!(b.get::<usize>(child_index).unwrap(), i);
+            let child_val: usize = b.number(child_index).unwrap().into();
+            assert_eq!(child_val, i);
         }
     }
 }
