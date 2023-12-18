@@ -587,8 +587,20 @@ mod test {
         }
     }
 
+    macro_rules! test_any_string {
+        ($value:expr, $val:expr) => {{
+            let mut b = Binary::default();
+            let i = b.add(None, $value);
+            let new_val: String = b.any(i).unwrap().into();
+            assert_eq!($val, new_val);
+        }};
+    }
+
     #[test]
     fn test_any() {
-        todo!();
+        test_any_string!("something", "something");
+        test_any_string!(8, "8");
+        test_any_string!(5000, "5000");
+        test_any_string!(9238492834 as u64, "9238492834");
     }
 }
