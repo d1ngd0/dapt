@@ -5,6 +5,8 @@ use crate::{
     error::{DaptResult, Error},
 };
 
+use base64::{engine::general_purpose::STANDARD_NO_PAD as Base64Encoder, Engine as _};
+
 // Serialize is used to
 pub trait Serialize {
     fn size_of(&self) -> usize;
@@ -34,6 +36,9 @@ pub const TYPE_ISIZE: u8 = 15;
 pub const TYPE_STR: u8 = 16;
 pub const TYPE_F32: u8 = 17;
 pub const TYPE_F64: u8 = 18;
+pub const TYPE_CHAR: u8 = 19;
+pub const TYPE_BYTES: u8 = 20;
+pub const TYPE_BOOL: u8 = 21;
 
 impl Serialize for u8 {
     fn size_of(&self) -> usize {
@@ -108,6 +113,19 @@ impl_serialize_deserialize!(i128, TYPE_I128);
 impl_serialize_deserialize!(isize, TYPE_ISIZE);
 impl_serialize_deserialize!(f32, TYPE_F32);
 impl_serialize_deserialize!(f64, TYPE_F64);
+impl_serialize_deserialize!(char, TYPE_CHAR);
+impl_serialize_deserialize!(bool, TYPE_BOOL);
+
+// impl<T: AsRef<str>> Serialize for T {
+//     fn size_of(&self) -> usize {
+//         self.as_ref().len()
+//     }
+
+//     fn serialize(&self, buf: &mut [u8]) -> u8 {
+//         buf.copy_from_slice(self.as_ref().as_bytes());
+//         TYPE_STR
+//     }
+// }
 
 impl Serialize for &str {
     fn size_of(&self) -> usize {
@@ -129,6 +147,29 @@ impl<'a> Deserialize<'a> for &'a str {
 
     fn deserialize(buf: &'a [u8]) -> Self::Item {
         unsafe { std::str::from_utf8_unchecked(buf) }
+    }
+}
+
+impl Serialize for &[u8] {
+    fn size_of(&self) -> usize {
+        self.len()
+    }
+
+    fn serialize(&self, buf: &mut [u8]) -> u8 {
+        buf.copy_from_slice(self);
+        TYPE_BYTES
+    }
+}
+
+impl<'a> Deserialize<'a> for &'a [u8] {
+    type Item = &'a [u8];
+
+    fn type_of() -> u8 {
+        TYPE_BYTES
+    }
+
+    fn deserialize(buf: &'a [u8]) -> Self::Item {
+        buf
     }
 }
 
@@ -228,6 +269,9 @@ pub enum Any<'a> {
     F32(f32),
     F64(f64),
     Str(&'a str),
+    Bytes(&'a [u8]),
+    Char(char),
+    Bool(bool),
 }
 
 impl<'a> Any<'a> {
@@ -249,6 +293,9 @@ impl<'a> Any<'a> {
             TYPE_F32 => Some(Any::F32(b.get::<f32>(index).unwrap())),
             TYPE_F64 => Some(Any::F64(b.get::<f64>(index).unwrap())),
             TYPE_STR => Some(Any::Str(b.get::<&'a str>(index).unwrap())),
+            TYPE_BYTES => Some(Any::Bytes(b.get::<&'a [u8]>(index).unwrap())),
+            TYPE_CHAR => Some(Any::Char(b.get::<char>(index).unwrap())),
+            TYPE_BOOL => Some(Any::Bool(b.get::<bool>(index).unwrap())),
             _ => None,
         }
     }
@@ -272,6 +319,9 @@ impl From<Any<'_>> for String {
             Any::ISize(val) => val.to_string(),
             Any::F32(val) => val.to_string(),
             Any::F64(val) => val.to_string(),
+            Any::Bytes(val) => Base64Encoder.encode(val),
+            Any::Char(val) => val.to_string(),
+            Any::Bool(val) => val.to_string(),
         }
     }
 }
@@ -301,6 +351,9 @@ impl TryFrom<Any<'_>> for Number {
             Any::ISize(val) => Ok(Number::ISize(val)),
             Any::F32(val) => Ok(Number::F32(val)),
             Any::F64(val) => Ok(Number::F64(val)),
+            _ => Err(Error::NumberConversionFailed(
+                "Could not convert into number".into(),
+            )),
         }
     }
 }

@@ -8,6 +8,7 @@ pub enum Error {
     IncorrectSize(String),
     InvalidIndex(String),
     GeneralError(String),
+    NumberConversionFailed(String),
 }
 
 impl From<ParseFloatError> for Error {
