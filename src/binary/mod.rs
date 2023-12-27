@@ -3,14 +3,17 @@ use std::default::Default;
 use std::mem;
 use std::ops::Deref;
 
+use arrayvec::ArrayVec;
+
 use crate::{
     error::{DaptResult, Error},
     value::{Any, Deserialize, Number, Serialize, TYPE_STR},
+    MAX_POINTERS,
 };
 
-const TYPE_REFERENCE: u8 = 0;
-const TYPE_COLLECTION: u8 = 1;
-const TYPE_KEYVAL: u8 = 2;
+pub const TYPE_REFERENCE: u8 = 0;
+pub const TYPE_COLLECTION: u8 = 1;
+pub const TYPE_KEYVAL: u8 = 2;
 
 const REFERENCE_LENGTH: usize = 5;
 const MAX_REFERENCE_DEPTH: isize = 20;
@@ -409,13 +412,24 @@ impl<'a> BCollection<'a> {
         Some(child_index as usize)
     }
 
+    // child_indexes takes an array to populate. Make sure you send it a large enough slice or it will panic
+    fn child_indexes(&self, ptrs: &mut [usize]) {
+        for i in 0..self.length() {
+            let child_content_index = self.child_index(i);
+
+            if let None = child_content_index {
+                return;
+            }
+
+            ptrs[i] = child_content_index.unwrap();
+        }
+    }
+
     fn child_key(&self, key: &str, b: &Binary) -> Option<usize> {
         for i in 0..self.length() {
             let child_content_index = self.child_index(i)?;
             let child: BKeyValue = b.token_at(child_content_index)?.try_into().ok()?;
-            println!("{} == {}", child.key(), key);
             if child.key() == key {
-                println!("in here");
                 return Some(child_content_index);
             }
         }
