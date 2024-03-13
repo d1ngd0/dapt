@@ -5,6 +5,7 @@ use binary::{BToken, Binary};
 
 mod binary;
 pub mod error;
+pub mod path;
 pub mod value;
 
 const MAX_POINTERS: usize = 128;
