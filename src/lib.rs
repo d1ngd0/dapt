@@ -2,17 +2,17 @@ use std::rc::Rc;
 
 use arrayvec::ArrayVec;
 use binary::{BToken, Binary};
+use bookmark::{Ptrs, MAX_POINTERS};
 
 mod binary;
-pub mod error;
-pub mod path;
-pub mod value;
-
-const MAX_POINTERS: usize = 128;
+mod bookmark;
+mod error;
+mod path;
+mod value;
 
 pub struct Dapt {
     iter_loc: usize,
-    ptrs: ArrayVec<usize, MAX_POINTERS>,
+    ptrs: Ptrs,
     b: Rc<Binary>,
 }
 
@@ -26,7 +26,7 @@ impl Default for Dapt {
             b: Rc::new(Binary::default()),
         };
 
-        d.ptrs.push(0);
+        d.ptrs.push(0.into());
         d
     }
 }
@@ -53,14 +53,8 @@ impl Dapt {
         self
     }
 
-    // type returns the type of the first value, and ignores the type
-    // of any other values.
-    pub fn type_of(&self) -> Option<u8> {
-        self.b.type_at(*self.ptrs.first()?)
-    }
-
     fn token_at(&self) -> Option<BToken> {
-        self.b.token_at(*self.ptrs.get(0)?)
+        self.ptrs.first()?.token_at(&self.b)
     }
 }
 

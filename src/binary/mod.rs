@@ -3,12 +3,9 @@ use std::default::Default;
 use std::mem;
 use std::ops::Deref;
 
-use arrayvec::ArrayVec;
-
 use crate::{
     error::{DaptResult, Error},
     value::{Any, Deserialize, Number, Serialize, TYPE_STR},
-    MAX_POINTERS,
 };
 
 pub const TYPE_REFERENCE: u8 = 0;
@@ -425,7 +422,7 @@ impl<'a> BCollection<'a> {
         }
     }
 
-    fn child_key(&self, key: &str, b: &Binary) -> Option<usize> {
+    pub fn child_key(&self, key: &str, b: &Binary) -> Option<usize> {
         for i in 0..self.length() {
             let child_content_index = self.child_index(i)?;
             let child: BKeyValue = b.token_at(child_content_index)?.try_into().ok()?;
@@ -491,7 +488,7 @@ impl<'a> BKeyValue<'a> {
         index
     }
 
-    fn child_index(&self) -> u32 {
+    pub fn child_index(&self) -> u32 {
         u32::deserialize(
             self.get(CONTENT_OFFSET..CONTENT_OFFSET + mem::size_of::<u32>())
                 .expect("bKeyValue is not the correct size"),
