@@ -23,6 +23,12 @@ impl From<u32> for Bookmark {
     }
 }
 
+impl From<i32> for Bookmark {
+    fn from(value: i32) -> Self {
+        Bookmark(value.try_into().unwrap())
+    }
+}
+
 impl Bookmark {
     // value_node returns a bookmark pointing to a value. If the
     // bookmark was pointing to a Key value it will traverse down
@@ -43,7 +49,7 @@ impl Bookmark {
         bin.type_at(self.0)
     }
 
-    pub fn token_at<'a>(&self, bin: &'a Rc<Binary>) -> Option<BToken> {
+    pub fn token_at<'a>(&self, bin: &'a Rc<Binary>) -> Option<BToken<'a>> {
         bin.token_at(self.0)
     }
 }
