@@ -7,6 +7,16 @@ use crate::binary::{BKeyValue, BToken, Binary, TYPE_KEYVAL};
 #[derive(Debug, Clone, Copy)]
 pub struct Bookmark(usize);
 
+impl Bookmark {
+    pub fn new(index: usize) -> Self {
+        Bookmark(index)
+    }
+
+    pub fn index(&self) -> usize {
+        self.0
+    }
+}
+
 pub const MAX_POINTERS: usize = 128;
 
 pub type Ptrs = ArrayVec<Bookmark, MAX_POINTERS>;

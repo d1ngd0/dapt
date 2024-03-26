@@ -8,7 +8,6 @@ mod binary;
 mod bookmark;
 mod error;
 mod path;
-mod value;
 
 pub struct Dapt {
     iter_loc: usize,

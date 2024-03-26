@@ -39,6 +39,7 @@ pub const TYPE_F64: u8 = 18;
 pub const TYPE_CHAR: u8 = 19;
 pub const TYPE_BYTES: u8 = 20;
 pub const TYPE_BOOL: u8 = 21;
+pub const TYPE_NULL: u8 = 22;
 
 impl Serialize for u8 {
     fn size_of(&self) -> usize {
@@ -150,6 +151,29 @@ impl<'a> Deserialize<'a> for &'a str {
     }
 }
 
+impl Serialize for String {
+    fn size_of(&self) -> usize {
+        self.len()
+    }
+
+    fn serialize(&self, buf: &mut [u8]) -> u8 {
+        buf.copy_from_slice(self.as_bytes());
+        TYPE_STR
+    }
+}
+
+impl Deserialize<'_> for String {
+    type Item = String;
+
+    fn type_of() -> u8 {
+        TYPE_STR
+    }
+
+    fn deserialize(buf: &[u8]) -> Self::Item {
+        unsafe { String::from_utf8_unchecked(buf.to_vec()) }
+    }
+}
+
 impl Serialize for &[u8] {
     fn size_of(&self) -> usize {
         self.len()
@@ -158,6 +182,29 @@ impl Serialize for &[u8] {
     fn serialize(&self, buf: &mut [u8]) -> u8 {
         buf.copy_from_slice(self);
         TYPE_BYTES
+    }
+}
+
+impl Serialize for Vec<u8> {
+    fn size_of(&self) -> usize {
+        self.len()
+    }
+
+    fn serialize(&self, buf: &mut [u8]) -> u8 {
+        buf.copy_from_slice(self);
+        TYPE_BYTES
+    }
+}
+
+impl Deserialize<'_> for Vec<u8> {
+    type Item = Vec<u8>;
+
+    fn type_of() -> u8 {
+        TYPE_BYTES
+    }
+
+    fn deserialize(buf: &'_ [u8]) -> Self::Item {
+        buf.to_vec()
     }
 }
 
@@ -170,6 +217,28 @@ impl<'a> Deserialize<'a> for &'a [u8] {
 
     fn deserialize(buf: &'a [u8]) -> Self::Item {
         buf
+    }
+}
+
+impl Serialize for () {
+    fn size_of(&self) -> usize {
+        0
+    }
+
+    fn serialize(&self, _: &mut [u8]) -> u8 {
+        TYPE_NULL
+    }
+}
+
+impl Deserialize<'_> for () {
+    type Item = ();
+
+    fn type_of() -> u8 {
+        TYPE_NULL
+    }
+
+    fn deserialize(_: &[u8]) -> Self::Item {
+        ()
     }
 }
 
@@ -272,6 +341,7 @@ pub enum Any<'a> {
     Bytes(&'a [u8]),
     Char(char),
     Bool(bool),
+    Null,
 }
 
 impl<'a> Any<'a> {
@@ -296,6 +366,7 @@ impl<'a> Any<'a> {
             TYPE_BYTES => Some(Any::Bytes(b.get::<&'a [u8]>(index).unwrap())),
             TYPE_CHAR => Some(Any::Char(b.get::<char>(index).unwrap())),
             TYPE_BOOL => Some(Any::Bool(b.get::<bool>(index).unwrap())),
+            TYPE_NULL => Some(Any::Null),
             _ => None,
         }
     }
@@ -322,6 +393,7 @@ impl From<Any<'_>> for String {
             Any::Bytes(val) => Base64Encoder.encode(val),
             Any::Char(val) => val.to_string(),
             Any::Bool(val) => val.to_string(),
+            Any::Null => "<null>".to_string(),
         }
     }
 }
