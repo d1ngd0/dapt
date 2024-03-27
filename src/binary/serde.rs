@@ -7,7 +7,7 @@ use serde::{
 
 use crate::bookmark::Bookmark;
 
-use super::{BCollection, Binary};
+use super::{BCollection, BKeyValue, Binary};
 
 struct BinaryVisitor {
     bin: Rc<RefCell<Binary>>,
@@ -25,6 +25,9 @@ macro_rules! impl_visit {
     };
 }
 
+// DeserializeSeed for the Binary Visitor calls back into itself by
+// calling deserialize_any. This means everything should return a bookmark
+// instead of the underlying value.
 impl<'de> DeserializeSeed<'de> for &BinaryVisitor {
     type Value = Bookmark;
 
@@ -33,6 +36,42 @@ impl<'de> DeserializeSeed<'de> for &BinaryVisitor {
         D: Deserializer<'de>,
     {
         deserializer.deserialize_any(self)
+    }
+}
+
+// MapKeyVisitor is a DeserializeSeed that ensures the key is a string
+struct MapKeySeed;
+
+impl<'de> DeserializeSeed<'de> for MapKeySeed {
+    // I really wanted to be able to use the borrowed str, but there
+    // is just no way for us to know how it is set up on the other side
+    // and so, to be safe and support most cases, we have to allocate
+    // a string. Sigh...
+    type Value = String;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct MapKeyVisitor;
+
+        impl<'de> Visitor<'de> for MapKeyVisitor {
+            type Value = String;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string")
+            }
+
+            // visit_str is, by default, called by visit_string and visit_str
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v.into())
+            }
+        }
+
+        deserializer.deserialize_str(MapKeyVisitor)
     }
 }
 
@@ -93,5 +132,41 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
             &ptrs[..],
             &mut bin,
         )))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        let mut ptrs = Vec::new();
+
+        while let Some((k, v)) = map.next_entry_seed(MapKeySeed, self)? {
+            let ptr = BKeyValue::create(None, v.index() as u32, &k, &mut self.bin.borrow_mut());
+            ptrs.push(ptr as u32);
+        }
+
+        let mut bin = self.bin.borrow_mut();
+        Ok(Bookmark::new(BCollection::create(
+            None,
+            &ptrs[..],
+            &mut bin,
+        )))
+    }
+
+    fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::EnumAccess<'de>,
+    {
+        // we don't care about the variant, we are all powerfull
+        // and can handle ANY TYPE!!!! BOW DOWN BEFORE ME AND TREMBLE
+        let (bookmark, _variant) = data.variant_seed(self)?;
+        Ok(bookmark)
+    }
+
+    fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(self)
     }
 }
