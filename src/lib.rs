@@ -1,14 +1,16 @@
 use std::rc::Rc;
 
 use arrayvec::ArrayVec;
-use binary::{BToken, Binary};
+use binary::{BToken, Binary, BinaryVisitor};
 use bookmark::{Ptrs, MAX_POINTERS};
+use serde::Deserializer;
 
 mod binary;
 mod bookmark;
 mod error;
 mod path;
 
+#[derive(Debug)]
 pub struct Dapt {
     iter_loc: usize,
     ptrs: Ptrs,
@@ -27,6 +29,24 @@ impl Default for Dapt {
 
         d.ptrs.push(0.into());
         d
+    }
+}
+
+impl<'de> serde::de::Deserialize<'de> for Dapt {
+    fn deserialize<D>(deserializer: D) -> Result<Dapt, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let visitor = BinaryVisitor::default();
+        let mut ptrs = ArrayVec::new();
+        let bookmark = deserializer.deserialize_any(&visitor)?;
+        ptrs.push(bookmark.into());
+
+        Ok(Dapt {
+            ptrs,
+            iter_loc: 0,
+            b: Rc::new(visitor.consume()),
+        })
     }
 }
 
@@ -58,4 +78,24 @@ impl Dapt {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize() {
+        let data = r#"
+            {
+                "a": 1,
+                "b": "hello",
+                "c": [1, 2, 3],
+                "d": {
+                    "e": 1,
+                    "f": "world"
+                }
+            }
+        "#;
+
+        let d: Dapt = serde_json::from_str(data).unwrap();
+        println!("{:?}", d);
+    }
+}

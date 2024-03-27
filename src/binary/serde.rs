@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::{cell::RefCell, fmt};
 
 use serde::{
     de::{DeserializeSeed, Visitor},
@@ -9,8 +9,30 @@ use crate::bookmark::Bookmark;
 
 use super::{BCollection, BKeyValue, Binary};
 
-struct BinaryVisitor {
-    bin: Rc<RefCell<Binary>>,
+pub struct BinaryVisitor {
+    bin: RefCell<Binary>,
+}
+
+impl BinaryVisitor {
+    pub fn consume(self) -> Binary {
+        self.bin.into_inner()
+    }
+}
+
+impl Default for BinaryVisitor {
+    fn default() -> Self {
+        Self {
+            bin: RefCell::new(Binary::default()),
+        }
+    }
+}
+
+impl From<Binary> for BinaryVisitor {
+    fn from(bin: Binary) -> Self {
+        Self {
+            bin: RefCell::new(bin),
+        }
+    }
 }
 
 // macro for implementing the simple types

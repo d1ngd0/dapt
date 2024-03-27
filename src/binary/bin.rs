@@ -3,6 +3,8 @@ use std::default::Default;
 use std::mem;
 use std::ops::Deref;
 
+use serde::Deserializer;
+
 use crate::{
     binary::{Any, Deserialize, Number, Serialize, TYPE_STR},
     error::{DaptResult, Error},
@@ -34,6 +36,7 @@ const PTR_OFFSET_END: usize = PTR_OFFSET + 4;
 
 const ADD_TOKEN_HEADER_LENGTH: usize = CONTENT_OFFSET + REFERENCE_LENGTH;
 
+#[derive(Debug)]
 pub struct Binary(Vec<u8>);
 
 impl Binary {
