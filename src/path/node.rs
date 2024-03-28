@@ -1,17 +1,18 @@
 use arrayvec::ArrayVec;
 use std::fmt;
+use std::rc::Rc;
 
 use crate::binary::BCollection;
+use crate::binary::Binary;
 use crate::binary::TYPE_COLLECTION;
 use crate::bookmark::Bookmark;
 use crate::bookmark::MAX_POINTERS;
-use crate::Dapt;
 use crate::Ptrs;
 
 // Node is the type that a parser puts out. each
 // node should implement the trait functions below
 pub trait Discoverable {
-    fn find(&self, d: &Dapt) -> Option<Ptrs>;
+    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -33,21 +34,19 @@ impl FieldLiteral {
 impl Discoverable for FieldLiteral {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, d: &Dapt) -> Option<Ptrs> {
+    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
         let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
 
-        for n in d.ptrs.iter() {
-            let n = n.value_node(&d.b)?;
+        let n = b.value_node(&bin)?;
 
-            match n.type_of(&d.b)? {
-                TYPE_COLLECTION => {
-                    let bcoll: BCollection = n.token_at(&d.b)?.try_into().unwrap();
-                    if let Some(child_location) = bcoll.child_key(&self.name, &d.b) {
-                        res.push(child_location.into());
-                    }
+        match n.type_of(&bin)? {
+            TYPE_COLLECTION => {
+                let bcoll: BCollection = n.token_at(&bin)?.try_into().unwrap();
+                if let Some(child_location) = bcoll.child_key(&self.name, &bin) {
+                    res.push(child_location.into());
                 }
-                _ => (),
             }
+            _ => (),
         }
 
         if res.len() > 0 {

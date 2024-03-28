@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
 use arrayvec::ArrayVec;
-use binary::{BToken, Binary, BinaryVisitor};
+use binary::{Any, Binary, BinaryVisitor, Deserialize, Number};
 use bookmark::{Ptrs, MAX_POINTERS};
+use path::parser::{Node, Path};
 use serde::Deserializer;
 
 mod binary;
@@ -72,8 +73,75 @@ impl Dapt {
         self
     }
 
-    fn token_at(&self) -> Option<BToken> {
-        self.ptrs.first()?.token_at(&self.b)
+    // get will return the value of the first pointer, if
+    // there is one. When calling this function you must know
+    // the type of value within the dapt packet
+    pub fn val<'a, T: Deserialize<'a>>(&'a self) -> Option<T::Item> {
+        if self.ptrs.len() == 0 {
+            return None;
+        }
+
+        self.b.get::<T>(self.ptrs[0].index())
+    }
+
+    // if you know the value is a string, you can grab it here without
+    // taking additional heap allocations. This will live as long as
+    // the dapt packet does.
+    pub fn str<'a>(&'a self) -> Option<&'a str> {
+        if self.ptrs.len() == 0 {
+            return None;
+        }
+
+        self.b.str(self.ptrs[0].index())
+    }
+
+    pub fn number(&self) -> Option<Number> {
+        if self.ptrs.len() == 0 {
+            return None;
+        }
+
+        self.b.number(self.ptrs[0].index()).ok()
+    }
+
+    pub fn any(&self) -> Option<Any> {
+        if self.ptrs.len() == 0 {
+            return None;
+        }
+
+        self.b.any(self.ptrs[0].index())
+    }
+
+    pub fn get(&self, path: &str) -> Result<Dapt, error::Error> {
+        let p = Path::try_from(path)?;
+        Ok(self.get_path(&p)?)
+    }
+
+    pub fn get_path(&self, path: &Path) -> Result<Dapt, error::Error> {
+        let mut d = Dapt {
+            iter_loc: 0,
+            ptrs: self.ptrs.clone(),
+            b: Rc::clone(&self.b),
+        };
+
+        for node in path.iter() {
+            d.step_path(node)?;
+        }
+
+        Ok(d)
+    }
+
+    fn step_path(&mut self, n: &Node) -> Result<(), error::Error> {
+        let mut ptrs = ArrayVec::new();
+
+        for ptr in self.ptrs.iter() {
+            let node_ptrs = n.find(Rc::clone(&self.b), *ptr);
+            if let Some(node_ptrs) = node_ptrs {
+                ptrs.try_extend_from_slice(&node_ptrs[..])?;
+            }
+        }
+
+        self.ptrs = ptrs;
+        Ok(())
     }
 }
 
@@ -89,13 +157,16 @@ mod tests {
                 "b": "hello",
                 "c": [1, 2, 3],
                 "d": {
-                    "e": 1,
+                    "e": 1000,
                     "f": "world"
                 }
             }
         "#;
 
         let d: Dapt = serde_json::from_str(data).unwrap();
-        println!("{:?}", d);
+        assert_eq!(d.get("d.f").unwrap().str(), Some("world"));
+        assert_eq!(d.get("a").unwrap().val::<usize>(), Some(1));
+        assert_eq!(d.get("b").unwrap().str(), Some("hello"));
+        assert_eq!(d.get("d.e").unwrap().val::<usize>(), Some(1000));
     }
 }

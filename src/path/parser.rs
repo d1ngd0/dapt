@@ -1,12 +1,26 @@
 use std::fmt;
+use std::ops::Deref;
+use std::rc::Rc;
+
+use crate::binary::Binary;
+use crate::bookmark::{Bookmark, Ptrs};
 
 use super::lexer::Lexer;
-use super::node::FieldLiteral;
+use super::node::{Discoverable, FieldLiteral};
 
 const NESTING_OPERATOR: &str = ".";
 
-enum ParseError {
+#[derive(Debug)]
+pub enum ParseError {
     EOF,
+}
+
+impl ParseError {
+    pub fn to_string(&self) -> String {
+        match self {
+            ParseError::EOF => "EOF".to_string(),
+        }
+    }
 }
 
 type ParseResult<T> = Result<T, ParseError>;
@@ -14,6 +28,14 @@ type ParseResult<T> = Result<T, ParseError>;
 #[derive(Debug, PartialEq)]
 pub enum Node {
     FieldLiteral(FieldLiteral),
+}
+
+impl Node {
+    pub fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+        match self {
+            Node::FieldLiteral(fl) => fl.find(bin, b),
+        }
+    }
 }
 
 impl fmt::Display for Node {
@@ -24,7 +46,52 @@ impl fmt::Display for Node {
     }
 }
 
-struct Parser<'a> {
+pub struct Path(Vec<Node>);
+
+impl Path {
+    pub fn new(path: &str) -> Result<Path, ParseError> {
+        Path::try_from(path)
+    }
+
+    pub fn push(&mut self, node: Node) {
+        self.0.push(node);
+    }
+
+    pub fn pop(&mut self) -> Option<Node> {
+        self.0.pop()
+    }
+}
+
+impl Deref for Path {
+    type Target = Vec<Node>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<&str> for Path {
+    type Error = ParseError;
+
+    fn try_from(path: &str) -> Result<Self, Self::Error> {
+        let mut p = Parser::from(path);
+        let mut nodes = vec![];
+
+        loop {
+            let node = p.parse();
+            match node {
+                Err(ParseError::EOF) => break,
+                Ok(n) => nodes.push(n),
+                // when there are more errors we can return
+                // them here
+            };
+        }
+
+        Ok(Path(nodes))
+    }
+}
+
+pub struct Parser<'a> {
     lex: Lexer<'a>,
 }
 

@@ -3,8 +3,6 @@ use std::default::Default;
 use std::mem;
 use std::ops::Deref;
 
-use serde::Deserializer;
-
 use crate::{
     binary::{Any, Deserialize, Number, Serialize, TYPE_STR},
     error::{DaptResult, Error},
@@ -574,7 +572,6 @@ mod test {
             .try_into()
             .expect("this should be a bcollection, we just made it");
         for i in 0..array.length() {
-            println!("{:?}", array.child_index(i));
             assert_eq!(i, b.get::<usize>(array.child_index(i).unwrap()).unwrap())
         }
     }
@@ -595,7 +592,6 @@ mod test {
 
         for i in 0..map.length() {
             let child_index = map.child_key(&format!("child_{i}"), &b).unwrap();
-            println!("{}", b.token_at(child_index).unwrap().get_type());
             let child_val: usize = b.number(child_index).unwrap().into();
             assert_eq!(child_val, i);
         }
