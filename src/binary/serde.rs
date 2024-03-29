@@ -1,13 +1,19 @@
-use std::{cell::RefCell, fmt};
+use std::{cell::RefCell, fmt, rc::Rc};
 
+use serde::ser::Serialize;
 use serde::{
     de::{DeserializeSeed, Visitor},
+    ser::{SerializeMap, SerializeSeq},
     Deserializer,
 };
 
 use crate::bookmark::Bookmark;
 
-use super::{BCollection, BKeyValue, Binary};
+use super::{
+    BCollection, BKeyValue, Binary, TYPE_BOOL, TYPE_BYTES, TYPE_CHAR, TYPE_COLLECTION, TYPE_F32,
+    TYPE_F64, TYPE_I128, TYPE_I16, TYPE_I32, TYPE_I64, TYPE_I8, TYPE_KEYVAL, TYPE_NULL, TYPE_STR,
+    TYPE_U128, TYPE_U16, TYPE_U32, TYPE_U64, TYPE_U8,
+};
 
 pub struct BinaryVisitor {
     bin: RefCell<Binary>,
@@ -190,5 +196,87 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
         D: Deserializer<'de>,
     {
         deserializer.deserialize_any(self)
+    }
+}
+
+pub struct SerializeBookmark {
+    bookmark: Bookmark,
+    bin: Rc<Binary>,
+}
+
+impl SerializeBookmark {
+    pub fn new(bookmark: Bookmark, bin: Rc<Binary>) -> Self {
+        Self { bookmark, bin }
+    }
+}
+
+impl SerializeBookmark {
+    // When calling this youd better be sure it is the right type
+    // otherwise we panic
+    pub fn get<'a, T: crate::binary::Deserialize<'a>>(&'a self) -> T::Item {
+        self.bin.get::<T>(self.bookmark.into()).unwrap()
+    }
+}
+
+impl Serialize for SerializeBookmark {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        match self.bookmark.type_of(&self.bin) {
+            None => serializer.serialize_none(),
+            Some(TYPE_I8) => serializer.serialize_i8(self.get::<i8>()),
+            Some(TYPE_I16) => serializer.serialize_i16(self.get::<i16>()),
+            Some(TYPE_I32) => serializer.serialize_i32(self.get::<i32>()),
+            Some(TYPE_I64) => serializer.serialize_i64(self.get::<i64>()),
+            Some(TYPE_I128) => serializer.serialize_i128(self.get::<i128>()),
+            Some(TYPE_U8) => serializer.serialize_u8(self.get::<u8>()),
+            Some(TYPE_U16) => serializer.serialize_u16(self.get::<u16>()),
+            Some(TYPE_U32) => serializer.serialize_u32(self.get::<u32>()),
+            Some(TYPE_U64) => serializer.serialize_u64(self.get::<u64>()),
+            Some(TYPE_U128) => serializer.serialize_u128(self.get::<u128>()),
+            Some(TYPE_F32) => serializer.serialize_f32(self.get::<f32>()),
+            Some(TYPE_F64) => serializer.serialize_f64(self.get::<f64>()),
+            Some(TYPE_STR) => serializer.serialize_str(&self.get::<&str>()),
+            Some(TYPE_BYTES) => serializer.serialize_bytes(&self.get::<&[u8]>()),
+            Some(TYPE_CHAR) => serializer.serialize_char(self.get::<char>()),
+            Some(TYPE_BOOL) => serializer.serialize_bool(self.get::<bool>()),
+            Some(TYPE_NULL) => serializer.serialize_unit(),
+            Some(TYPE_COLLECTION) => {
+                let c = self.bookmark.token_at(&self.bin).unwrap();
+                let c = BCollection::try_from(c).unwrap();
+
+                if self.bookmark.is_array(&self.bin) {
+                    let mut seq = serializer.serialize_seq(Some(c.length() as usize))?;
+                    for i in 0..c.length() {
+                        seq.serialize_element(&SerializeBookmark::new(
+                            c.child_index(i).unwrap().into(),
+                            Rc::clone(&self.bin),
+                        ))?;
+                    }
+                    seq.end()
+                } else {
+                    let mut map = serializer.serialize_map(Some(c.length() as usize))?;
+                    for i in 0..c.length() {
+                        let kv = self.bin.token_at(c.child_index(i).unwrap()).unwrap();
+                        let kv = BKeyValue::try_from(kv).unwrap();
+                        let key = kv.key();
+
+                        map.serialize_entry(
+                            &key,
+                            &SerializeBookmark::new(kv.child_index().into(), Rc::clone(&self.bin)),
+                        )?;
+                    }
+                    map.end()
+                }
+            }
+            Some(TYPE_KEYVAL) => {
+                let kv = self.bookmark.token_at(&self.bin).unwrap();
+                let kv = BKeyValue::try_from(kv).unwrap();
+                SerializeBookmark::new(kv.child_index().into(), Rc::clone(&self.bin))
+                    .serialize(serializer)
+            }
+            _ => panic!("Unknown type"),
+        }
     }
 }

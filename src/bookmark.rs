@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use arrayvec::ArrayVec;
 
-use crate::binary::{BKeyValue, BToken, Binary, TYPE_KEYVAL};
+use crate::binary::{BCollection, BKeyValue, BToken, Binary, TYPE_COLLECTION, TYPE_KEYVAL};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Bookmark(usize);
@@ -39,6 +39,12 @@ impl From<i32> for Bookmark {
     }
 }
 
+impl From<Bookmark> for usize {
+    fn from(value: Bookmark) -> Self {
+        value.0
+    }
+}
+
 impl Bookmark {
     // value_node returns a bookmark pointing to a value. If the
     // bookmark was pointing to a Key value it will traverse down
@@ -53,6 +59,40 @@ impl Bookmark {
         };
 
         Some(loc)
+    }
+
+    // TODO: This is horribly messy, we need to track the type
+    // of the collection (array or map) seperatly.
+    pub fn is_array<'a>(&self, bin: &'a Rc<Binary>) -> bool {
+        let t = self.token_at(bin);
+        if let None = t {
+            return false;
+        }
+        let t = t.unwrap();
+
+        if t.get_type() != TYPE_COLLECTION {
+            return false;
+        }
+
+        let c = BCollection::try_from(t).unwrap();
+        if c.length() == 0 {
+            return false;
+        }
+
+        let first = bin.token_at(c.child_index(0).unwrap());
+        if let None = first {
+            return false;
+        }
+
+        if first.unwrap().get_type() == TYPE_KEYVAL {
+            return false;
+        }
+
+        true
+    }
+
+    pub fn is_object<'a>(&self, bin: &'a Rc<Binary>) -> bool {
+        !self.is_array(bin)
     }
 
     pub fn type_of<'a>(&self, bin: &'a Rc<Binary>) -> Option<u8> {

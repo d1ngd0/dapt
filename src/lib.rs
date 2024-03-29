@@ -1,9 +1,10 @@
 use std::rc::Rc;
 
 use arrayvec::ArrayVec;
-use binary::{Any, Binary, BinaryVisitor, Deserialize, Number};
+use binary::{Any, Binary, BinaryVisitor, Deserialize, Number, SerializeBookmark};
 use bookmark::{Ptrs, MAX_POINTERS};
 use path::parser::{Node, Path};
+use serde::ser::SerializeSeq;
 use serde::Deserializer;
 
 mod binary;
@@ -48,6 +49,25 @@ impl<'de> serde::de::Deserialize<'de> for Dapt {
             iter_loc: 0,
             b: Rc::new(visitor.consume()),
         })
+    }
+}
+
+impl serde::ser::Serialize for Dapt {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        match self.ptrs.len() {
+            0 => serializer.serialize_none(),
+            1 => SerializeBookmark::new(self.ptrs[0], Rc::clone(&self.b)).serialize(serializer),
+            _ => {
+                let mut seq = serializer.serialize_seq(Some(self.ptrs.len()))?;
+                for ptr in self.ptrs.iter() {
+                    seq.serialize_element(&SerializeBookmark::new(*ptr, self.b.clone()))?;
+                }
+                seq.end()
+            }
+        }
     }
 }
 
@@ -168,5 +188,10 @@ mod tests {
         assert_eq!(d.get("a").unwrap().val::<usize>(), Some(1));
         assert_eq!(d.get("b").unwrap().str(), Some("hello"));
         assert_eq!(d.get("d.e").unwrap().val::<usize>(), Some(1000));
+
+        assert_eq!(
+            r#"[1,2,3]"#,
+            serde_json::to_string(&d.get("c").unwrap()).unwrap()
+        );
     }
 }

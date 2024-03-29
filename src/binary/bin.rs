@@ -404,7 +404,7 @@ impl<'a> BCollection<'a> {
         index
     }
 
-    fn child_index(&self, index: usize) -> Option<usize> {
+    pub fn child_index(&self, index: usize) -> Option<usize> {
         let index = CONTENT_OFFSET + (index * mem::size_of::<u32>());
         let child_index = u32::deserialize(self.get(index..index + mem::size_of::<u32>())?);
         Some(child_index as usize)
@@ -435,7 +435,7 @@ impl<'a> BCollection<'a> {
         None
     }
 
-    fn length(&self) -> usize {
+    pub fn length(&self) -> usize {
         (self.0.len() - CONTENT_OFFSET) / mem::size_of::<u32>()
     }
 }
@@ -496,7 +496,7 @@ impl<'a> BKeyValue<'a> {
         )
     }
 
-    fn key(&'a self) -> &'a str {
+    pub fn key(&'a self) -> &'a str {
         let val_offset = CONTENT_OFFSET + mem::size_of::<u32>();
         <&'a str as Deserialize>::deserialize(
             self.get(val_offset..).expect("invalid sized keyvalue"),
