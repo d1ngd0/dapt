@@ -199,18 +199,18 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
     }
 }
 
-pub struct SerializeBookmark {
+pub struct SerializeBookmark<'a> {
     bookmark: Bookmark,
-    bin: Rc<Binary>,
+    bin: &'a Rc<Binary>,
 }
 
-impl SerializeBookmark {
-    pub fn new(bookmark: Bookmark, bin: Rc<Binary>) -> Self {
+impl<'a> SerializeBookmark<'a> {
+    pub fn new(bookmark: Bookmark, bin: &'a Rc<Binary>) -> Self {
         Self { bookmark, bin }
     }
 }
 
-impl SerializeBookmark {
+impl SerializeBookmark<'_> {
     // When calling this youd better be sure it is the right type
     // otherwise we panic
     pub fn get<'a, T: crate::binary::Deserialize<'a>>(&'a self) -> T::Item {
@@ -218,7 +218,7 @@ impl SerializeBookmark {
     }
 }
 
-impl Serialize for SerializeBookmark {
+impl Serialize for SerializeBookmark<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
@@ -251,7 +251,7 @@ impl Serialize for SerializeBookmark {
                     for i in 0..c.length() {
                         seq.serialize_element(&SerializeBookmark::new(
                             c.child_index(i).unwrap().into(),
-                            Rc::clone(&self.bin),
+                            self.bin,
                         ))?;
                     }
                     seq.end()
@@ -264,17 +264,16 @@ impl Serialize for SerializeBookmark {
 
                         map.serialize_entry(
                             &key,
-                            &SerializeBookmark::new(kv.child_index().into(), Rc::clone(&self.bin)),
+                            &SerializeBookmark::new(kv.child_index().into(), self.bin),
                         )?;
                     }
                     map.end()
                 }
             }
             Some(TYPE_KEYVAL) => {
-                let kv = self.bookmark.token_at(&self.bin).unwrap();
+                let kv = self.bookmark.token_at(self.bin).unwrap();
                 let kv = BKeyValue::try_from(kv).unwrap();
-                SerializeBookmark::new(kv.child_index().into(), Rc::clone(&self.bin))
-                    .serialize(serializer)
+                SerializeBookmark::new(kv.child_index().into(), self.bin).serialize(serializer)
             }
             _ => panic!("Unknown type"),
         }

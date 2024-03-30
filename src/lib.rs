@@ -59,11 +59,11 @@ impl serde::ser::Serialize for Dapt {
     {
         match self.ptrs.len() {
             0 => serializer.serialize_none(),
-            1 => SerializeBookmark::new(self.ptrs[0], Rc::clone(&self.b)).serialize(serializer),
+            1 => SerializeBookmark::new(self.ptrs[0], &self.b).serialize(serializer),
             _ => {
                 let mut seq = serializer.serialize_seq(Some(self.ptrs.len()))?;
                 for ptr in self.ptrs.iter() {
-                    seq.serialize_element(&SerializeBookmark::new(*ptr, self.b.clone()))?;
+                    seq.serialize_element(&SerializeBookmark::new(*ptr, &self.b))?;
                 }
                 seq.end()
             }
