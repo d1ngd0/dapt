@@ -196,6 +196,12 @@ mod tests {
             serde_json::to_string(&d.get("c").unwrap()).unwrap()
         );
 
+        assert_eq!("2", serde_json::to_string(&d.get("c[1]").unwrap()).unwrap());
+        assert_eq!(
+            "[1,2,3]",
+            serde_json::to_string(&d.get("c[]").unwrap()).unwrap()
+        );
+
         assert_eq!(
             "[]",
             serde_json::to_string(&d.get("empty_array").unwrap()).unwrap()

@@ -6,19 +6,27 @@ use crate::binary::Binary;
 use crate::bookmark::{Bookmark, Ptrs};
 
 use super::lexer::Lexer;
-use super::node::{Discoverable, FieldLiteral};
+use super::node::{Array, Discoverable, FieldLiteral};
 
 const NESTING_OPERATOR: &str = ".";
+const INDEX_OPERATOR: &str = "[";
+const INDEX_OPERATOR_END: &str = "]";
 
 #[derive(Debug)]
 pub enum ParseError {
     EOF,
+    UnexpectedEOF,
+    MalformedPath(String),
+    InvalidIndex(String),
 }
 
 impl ParseError {
     pub fn to_string(&self) -> String {
         match self {
             ParseError::EOF => "EOF".to_string(),
+            ParseError::UnexpectedEOF => "Unexpected EOF".to_string(),
+            ParseError::MalformedPath(s) => format!("Malformed path: {}", s),
+            ParseError::InvalidIndex(s) => format!("Invalid index: {}", s),
         }
     }
 }
@@ -28,12 +36,14 @@ type ParseResult<T> = Result<T, ParseError>;
 #[derive(Debug, PartialEq)]
 pub enum Node {
     FieldLiteral(FieldLiteral),
+    Array(Array),
 }
 
 impl Node {
     pub fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
         match self {
             Node::FieldLiteral(fl) => fl.find(bin, b),
+            Node::Array(ar) => ar.find(bin, b),
         }
     }
 }
@@ -42,6 +52,7 @@ impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Node::FieldLiteral(fl) => write!(f, "{}", fl),
+            Node::Array(ar) => write!(f, "{}", ar),
         }
     }
 }
@@ -81,6 +92,7 @@ impl TryFrom<&str> for Path {
             let node = p.parse();
             match node {
                 Err(ParseError::EOF) => break,
+                Err(err) => Err(err)?,
                 Ok(n) => nodes.push(n),
                 // when there are more errors we can return
                 // them here
@@ -119,7 +131,35 @@ impl Parser<'_> {
         match token.unwrap() {
             // if we hit a nesting operator we should just try again
             NESTING_OPERATOR => self.parse(),
+            INDEX_OPERATOR => self.parse_index(),
             _ => Ok(Node::FieldLiteral(FieldLiteral::new(token.unwrap()))),
+        }
+    }
+
+    fn parse_index(&mut self) -> ParseResult<Node> {
+        let token = self.lex.token();
+        match token {
+            Some(INDEX_OPERATOR_END) => Ok(Node::Array(Array::new(None))),
+            Some(index) => {
+                let end_index = self.lex.token();
+                if let None = end_index {
+                    return Err(ParseError::UnexpectedEOF);
+                }
+
+                if end_index.unwrap() != INDEX_OPERATOR_END {
+                    return Err(ParseError::MalformedPath(
+                        "missing closing bracket for array".to_string(),
+                    ));
+                }
+
+                let index = match index.parse::<usize>() {
+                    Ok(index) => index,
+                    Err(_) => return Err(ParseError::InvalidIndex(index.to_string())),
+                };
+
+                Ok(Node::Array(Array::new(Some(index))))
+            }
+            None => Err(ParseError::UnexpectedEOF),
         }
     }
 }
