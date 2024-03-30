@@ -2,9 +2,7 @@ use arrayvec::ArrayVec;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::binary::BCollection;
-use crate::binary::Binary;
-use crate::binary::TYPE_COLLECTION;
+use crate::binary::{BArray, BMap, Binary, TYPE_ARRAY, TYPE_MAP};
 use crate::bookmark::Bookmark;
 use crate::bookmark::MAX_POINTERS;
 use crate::Ptrs;
@@ -40,8 +38,8 @@ impl Discoverable for FieldLiteral {
         let n = b.value_node(&bin)?;
 
         match n.type_of(&bin)? {
-            TYPE_COLLECTION => {
-                let bcoll: BCollection = n.token_at(&bin)?.try_into().unwrap();
+            TYPE_MAP => {
+                let bcoll: BMap = n.token_at(&bin)?.try_into().unwrap();
                 if let Some(child_location) = bcoll.child_key(&self.name, &bin) {
                     res.push(child_location.into());
                 }

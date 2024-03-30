@@ -9,8 +9,9 @@ use crate::{
 };
 
 pub const TYPE_REFERENCE: u8 = 0;
-pub const TYPE_COLLECTION: u8 = 1;
-pub const TYPE_KEYVAL: u8 = 2;
+pub const TYPE_MAP: u8 = 1;
+pub const TYPE_ARRAY: u8 = 2;
+pub const TYPE_KEYVAL: u8 = 3;
 
 const REFERENCE_LENGTH: usize = 5;
 const MAX_REFERENCE_DEPTH: isize = 20;
@@ -163,7 +164,8 @@ impl Binary {
                 let key_value: BKeyValue = token.try_into().ok()?;
                 self.val_at(key_value.child_index() as usize)
             }
-            TYPE_COLLECTION => None,
+            TYPE_MAP => None,
+            TYPE_ARRAY => None,
             _ => Some(index),
         }
     }
@@ -353,31 +355,24 @@ impl<'a> BToken<'a> {
     }
 }
 
-// BArray houses the links to all the Values within the array
-// It's structure is a superset of BToken Where the contents
-// are u32 pointers to the locations of values for the array
-// these pointers can point to any Serialize and Deserialized
-// value, BObjects or BArray. The values within the array do
-// not need to house the same type.
+// BMap houses a map object in a dapt packet. A BMap children should
+// only be KeyValue objects.
 #[derive(PartialEq, Debug)]
-pub struct BCollection<'a>(&'a [u8]);
+pub struct BMap<'a>(&'a [u8]);
 
-impl<'a> TryFrom<BToken<'a>> for BCollection<'a> {
+impl<'a> TryFrom<BToken<'a>> for BMap<'a> {
     type Error = Error;
 
     fn try_from(b: BToken<'a>) -> DaptResult<Self> {
-        if b.get_type() != TYPE_COLLECTION {
-            return Err(Error::TypeMismatch(
-                b.get_type(),
-                "Expected BCollection".into(),
-            ));
+        if b.get_type() != TYPE_MAP {
+            return Err(Error::TypeMismatch(b.get_type(), "Expected BMap".into()));
         }
 
-        Ok(BCollection(b.0))
+        Ok(BMap(b.0))
     }
 }
 
-impl<'a> Deref for BCollection<'a> {
+impl<'a> Deref for BMap<'a> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -385,11 +380,10 @@ impl<'a> Deref for BCollection<'a> {
     }
 }
 
-impl<'a> BCollection<'a> {
+impl<'a> BMap<'a> {
     pub fn create(parent_index: Option<u32>, children: &[u32], b: &mut Binary) -> usize {
         let size = mem::size_of::<u32>();
-        let (index, token_index) =
-            b.add_sized(parent_index, size * children.len(), TYPE_COLLECTION);
+        let (index, token_index) = b.add_sized(parent_index, size * children.len(), TYPE_MAP);
 
         for (i, v) in children.iter().enumerate() {
             let child_content_index = token_index + CONTENT_OFFSET + (i * size);
@@ -504,6 +498,73 @@ impl<'a> BKeyValue<'a> {
     }
 }
 
+// BArray houses an array object in a dapt packet. A BArray should not
+// house bkeyvalue objects.
+#[derive(PartialEq, Debug)]
+pub struct BArray<'a>(&'a [u8]);
+
+impl<'a> TryFrom<BToken<'a>> for BArray<'a> {
+    type Error = Error;
+
+    fn try_from(b: BToken<'a>) -> DaptResult<Self> {
+        if b.get_type() != TYPE_ARRAY {
+            return Err(Error::TypeMismatch(b.get_type(), "Expected BArray".into()));
+        }
+
+        Ok(BArray(b.0))
+    }
+}
+
+impl<'a> Deref for BArray<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a> BArray<'a> {
+    pub fn create(parent_index: Option<u32>, children: &[u32], b: &mut Binary) -> usize {
+        let size = mem::size_of::<u32>();
+        let (index, token_index) = b.add_sized(parent_index, size * children.len(), TYPE_ARRAY);
+
+        for (i, v) in children.iter().enumerate() {
+            let child_content_index = token_index + CONTENT_OFFSET + (i * size);
+            v.serialize(
+                b.0.get_mut(child_content_index..child_content_index + 4)
+                    .expect("invalid sized object"),
+            );
+
+            BToken::set_parent(b, *v as usize, Some(index as u32));
+        }
+
+        index
+    }
+
+    pub fn child_index(&self, index: usize) -> Option<usize> {
+        let index = CONTENT_OFFSET + (index * mem::size_of::<u32>());
+        let child_index = u32::deserialize(self.get(index..index + mem::size_of::<u32>())?);
+        Some(child_index as usize)
+    }
+
+    // child_indexes takes an array to populate. Make sure you send it a large enough slice or it will panic
+    pub fn child_indexes(&self, ptrs: &mut [usize]) {
+        for i in 0..self.length() {
+            let child_content_index = self.child_index(i);
+
+            if let None = child_content_index {
+                return;
+            }
+
+            ptrs[i] = child_content_index.unwrap();
+        }
+    }
+
+    pub fn length(&self) -> usize {
+        (self.0.len() - CONTENT_OFFSET) / mem::size_of::<u32>()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -565,12 +626,13 @@ mod test {
         for i in 0..10 {
             children.push(b.add(None, i as usize) as u32);
         }
-        let index = BCollection::create(None, &children[..], &mut b);
-        let array: BCollection = b
+
+        let index = BArray::create(None, &children[..], &mut b);
+        let array: BArray = b
             .token_at(index)
             .unwrap()
             .try_into()
-            .expect("this should be a bcollection, we just made it");
+            .expect("this should be a barray, we just made it");
         for i in 0..array.length() {
             assert_eq!(i, b.get::<usize>(array.child_index(i).unwrap()).unwrap())
         }
@@ -587,8 +649,8 @@ mod test {
             children.push(key_index as u32);
         }
 
-        let index = BCollection::create(None, &children, &mut b);
-        let map: BCollection = b.token_at(index).unwrap().try_into().unwrap();
+        let index = BMap::create(None, &children, &mut b);
+        let map: BMap = b.token_at(index).unwrap().try_into().unwrap();
 
         for i in 0..map.length() {
             let child_index = map.child_key(&format!("child_{i}"), &b).unwrap();

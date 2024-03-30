@@ -10,9 +10,9 @@ use serde::{
 use crate::bookmark::Bookmark;
 
 use super::{
-    BCollection, BKeyValue, Binary, TYPE_BOOL, TYPE_BYTES, TYPE_CHAR, TYPE_COLLECTION, TYPE_F32,
-    TYPE_F64, TYPE_I128, TYPE_I16, TYPE_I32, TYPE_I64, TYPE_I8, TYPE_KEYVAL, TYPE_NULL, TYPE_STR,
-    TYPE_U128, TYPE_U16, TYPE_U32, TYPE_U64, TYPE_U8,
+    BArray, BKeyValue, BMap, Binary, TYPE_ARRAY, TYPE_BOOL, TYPE_BYTES, TYPE_CHAR, TYPE_F32,
+    TYPE_F64, TYPE_I128, TYPE_I16, TYPE_I32, TYPE_I64, TYPE_I8, TYPE_KEYVAL, TYPE_MAP, TYPE_NULL,
+    TYPE_STR, TYPE_U128, TYPE_U16, TYPE_U32, TYPE_U64, TYPE_U8,
 };
 
 pub struct BinaryVisitor {
@@ -155,11 +155,7 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
         }
 
         let mut bin = self.bin.borrow_mut();
-        Ok(Bookmark::new(BCollection::create(
-            None,
-            &ptrs[..],
-            &mut bin,
-        )))
+        Ok(Bookmark::new(BArray::create(None, &ptrs[..], &mut bin)))
     }
 
     fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -174,11 +170,7 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
         }
 
         let mut bin = self.bin.borrow_mut();
-        Ok(Bookmark::new(BCollection::create(
-            None,
-            &ptrs[..],
-            &mut bin,
-        )))
+        Ok(Bookmark::new(BMap::create(None, &ptrs[..], &mut bin)))
     }
 
     fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
@@ -242,33 +234,35 @@ impl Serialize for SerializeBookmark<'_> {
             Some(TYPE_CHAR) => serializer.serialize_char(self.get::<char>()),
             Some(TYPE_BOOL) => serializer.serialize_bool(self.get::<bool>()),
             Some(TYPE_NULL) => serializer.serialize_unit(),
-            Some(TYPE_COLLECTION) => {
+            Some(TYPE_ARRAY) => {
                 let c = self.bookmark.token_at(&self.bin).unwrap();
-                let c = BCollection::try_from(c).unwrap();
+                let c = BArray::try_from(c).unwrap();
 
-                if self.bookmark.is_array(&self.bin) {
-                    let mut seq = serializer.serialize_seq(Some(c.length() as usize))?;
-                    for i in 0..c.length() {
-                        seq.serialize_element(&SerializeBookmark::new(
-                            c.child_index(i).unwrap().into(),
-                            self.bin,
-                        ))?;
-                    }
-                    seq.end()
-                } else {
-                    let mut map = serializer.serialize_map(Some(c.length() as usize))?;
-                    for i in 0..c.length() {
-                        let kv = self.bin.token_at(c.child_index(i).unwrap()).unwrap();
-                        let kv = BKeyValue::try_from(kv).unwrap();
-                        let key = kv.key();
-
-                        map.serialize_entry(
-                            &key,
-                            &SerializeBookmark::new(kv.child_index().into(), self.bin),
-                        )?;
-                    }
-                    map.end()
+                let mut seq = serializer.serialize_seq(Some(c.length() as usize))?;
+                for i in 0..c.length() {
+                    seq.serialize_element(&SerializeBookmark::new(
+                        c.child_index(i).unwrap().into(),
+                        self.bin,
+                    ))?;
                 }
+                seq.end()
+            }
+            Some(TYPE_MAP) => {
+                let c = self.bookmark.token_at(&self.bin).unwrap();
+                let c = BMap::try_from(c).unwrap();
+
+                let mut map = serializer.serialize_map(Some(c.length() as usize))?;
+                for i in 0..c.length() {
+                    let kv = self.bin.token_at(c.child_index(i).unwrap()).unwrap();
+                    let kv = BKeyValue::try_from(kv).unwrap();
+                    let key = kv.key();
+
+                    map.serialize_entry(
+                        &key,
+                        &SerializeBookmark::new(kv.child_index().into(), self.bin),
+                    )?;
+                }
+                map.end()
             }
             Some(TYPE_KEYVAL) => {
                 let kv = self.bookmark.token_at(self.bin).unwrap();

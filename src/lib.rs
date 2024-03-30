@@ -179,7 +179,9 @@ mod tests {
                 "d": {
                     "e": 1000,
                     "f": "world"
-                }
+                },
+                "empty_array": [],
+                "empty_object": {}
             }
         "#;
 
@@ -192,6 +194,15 @@ mod tests {
         assert_eq!(
             r#"[1,2,3]"#,
             serde_json::to_string(&d.get("c").unwrap()).unwrap()
+        );
+
+        assert_eq!(
+            "[]",
+            serde_json::to_string(&d.get("empty_array").unwrap()).unwrap()
+        );
+        assert_eq!(
+            "{}",
+            serde_json::to_string(&d.get("empty_object").unwrap()).unwrap()
         );
     }
 }
