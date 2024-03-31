@@ -133,3 +133,40 @@ impl fmt::Display for Array {
         }
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub struct Wildcard;
+
+impl Discoverable for Wildcard {
+    // find returns a list of pointers to the
+    // child that matches the specified name.
+    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+
+        let n = b.value_node(&bin)?;
+
+        match n.type_of(&bin)? {
+            TYPE_MAP => {
+                let bcoll: BMap = n.token_at(&bin)?.try_into().unwrap();
+                unsafe {
+                    res.set_len(bcoll.length()); // set the length to hold the
+                                                 // indexes
+                    bcoll.child_indexes(&mut res) // add the indexes
+                }
+            }
+            _ => (),
+        }
+
+        if res.len() > 0 {
+            Some(res)
+        } else {
+            None
+        }
+    }
+}
+
+impl fmt::Display for Wildcard {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "*")
+    }
+}

@@ -6,11 +6,12 @@ use crate::binary::Binary;
 use crate::bookmark::{Bookmark, Ptrs};
 
 use super::lexer::Lexer;
-use super::node::{Array, Discoverable, FieldLiteral};
+use super::node::{Array, Discoverable, FieldLiteral, Wildcard};
 
 const NESTING_OPERATOR: &str = ".";
 const INDEX_OPERATOR: &str = "[";
 const INDEX_OPERATOR_END: &str = "]";
+const WILDCARD_OPERATOR: &str = "*";
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -37,6 +38,7 @@ type ParseResult<T> = Result<T, ParseError>;
 pub enum Node {
     FieldLiteral(FieldLiteral),
     Array(Array),
+    Wildcard(Wildcard),
 }
 
 impl Node {
@@ -44,6 +46,7 @@ impl Node {
         match self {
             Node::FieldLiteral(fl) => fl.find(bin, b),
             Node::Array(ar) => ar.find(bin, b),
+            Node::Wildcard(w) => w.find(bin, b),
         }
     }
 }
@@ -53,6 +56,7 @@ impl fmt::Display for Node {
         match self {
             Node::FieldLiteral(fl) => write!(f, "{}", fl),
             Node::Array(ar) => write!(f, "{}", ar),
+            Node::Wildcard(wc) => write!(f, "{}", wc),
         }
     }
 }
@@ -94,8 +98,6 @@ impl TryFrom<&str> for Path {
                 Err(ParseError::EOF) => break,
                 Err(err) => Err(err)?,
                 Ok(n) => nodes.push(n),
-                // when there are more errors we can return
-                // them here
             };
         }
 
@@ -132,6 +134,7 @@ impl Parser<'_> {
             // if we hit a nesting operator we should just try again
             NESTING_OPERATOR => self.parse(),
             INDEX_OPERATOR => self.parse_index(),
+            WILDCARD_OPERATOR => Ok(Node::Wildcard(Wildcard)),
             _ => Ok(Node::FieldLiteral(FieldLiteral::new(token.unwrap()))),
         }
     }

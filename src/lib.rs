@@ -197,6 +197,7 @@ mod tests {
         );
 
         assert_eq!("2", serde_json::to_string(&d.get("c[1]").unwrap()).unwrap());
+
         assert_eq!(
             "[1,2,3]",
             serde_json::to_string(&d.get("c[]").unwrap()).unwrap()
@@ -209,6 +210,10 @@ mod tests {
         assert_eq!(
             "{}",
             serde_json::to_string(&d.get("empty_object").unwrap()).unwrap()
+        );
+        assert_eq!(
+            "[1000,\"world\"]",
+            serde_json::to_string(&d.get("d.*").unwrap()).unwrap()
         );
     }
 }

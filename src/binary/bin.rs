@@ -406,7 +406,7 @@ impl<'a> BMap<'a> {
     }
 
     // child_indexes takes an array to populate. Make sure you send it a large enough slice or it will panic
-    fn child_indexes(&self, ptrs: &mut [usize]) {
+    pub fn child_indexes(&self, ptrs: &mut [Bookmark]) {
         for i in 0..self.length() {
             let child_content_index = self.child_index(i);
 
@@ -414,7 +414,7 @@ impl<'a> BMap<'a> {
                 return;
             }
 
-            ptrs[i] = child_content_index.unwrap();
+            ptrs[i] = Bookmark::new(child_content_index.unwrap());
         }
     }
 
