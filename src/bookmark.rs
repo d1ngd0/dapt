@@ -94,4 +94,73 @@ impl Bookmark {
     pub fn token_at<'a>(&self, bin: &'a Rc<Binary>) -> Option<BToken<'a>> {
         bin.token_at(self.0)
     }
+
+    // pub fn key<'a>(&self, relative: Option<Bookmark>, bin: &'a Rc<Binary>) -> Option<String> {
+    //     let mut t = bin.token_at(self.value_node(bin)?.index())?;
+    //     let mut path = Path::default();
+
+    //     loop {
+    //         let p = bin.token_at(t.get_parent_index()? as usize)?;
+
+    //         match p.get_type() {
+    //             TYPE_KEYVAL => {
+    //                 let kv = BKeyValue::try_from(p).unwrap();
+    //                 path.push(Node::FieldLiteral(FieldLiteral::new(kv.key())));
+    //             }
+    //             _ => (),
+    //         }
+    //     }
+
+    //     Some(path.reverse().to_string())
+    // }
+
+    pub fn walk<'a, F, T>(&self, bin: &'a Rc<Binary>, ob: &mut T, f: &F) -> bool
+    where
+        F: Fn(Bookmark, &mut T) -> bool,
+    {
+        let t = self.value_node(bin);
+        if let None = t {
+            return true;
+        }
+
+        let t = bin.token_at(t.unwrap().index());
+        if let None = t {
+            return true;
+        }
+        let t = t.unwrap();
+
+        match t.get_type() {
+            TYPE_ARRAY => {
+                if !f(*self, ob) {
+                    return false;
+                }
+
+                let bcoll = BArray::try_from(t).unwrap();
+                for i in 0..bcoll.length() {
+                    let b = Bookmark::new(bcoll.child_index(i).unwrap());
+                    if !b.walk(bin, ob, f) {
+                        return false;
+                    }
+                }
+
+                true
+            }
+            TYPE_MAP => {
+                if !f(*self, ob) {
+                    return false;
+                }
+
+                let bcoll = BMap::try_from(t).unwrap();
+                for i in 0..bcoll.length() {
+                    let b = Bookmark::new(bcoll.child_index(i).unwrap());
+                    if !b.walk(bin, ob, f) {
+                        return false;
+                    }
+                }
+
+                true
+            }
+            _ => f(*self, ob),
+        }
+    }
 }

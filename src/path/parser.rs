@@ -6,12 +6,13 @@ use crate::binary::Binary;
 use crate::bookmark::{Bookmark, Ptrs};
 
 use super::lexer::Lexer;
-use super::node::{Array, Discoverable, FieldLiteral, Wildcard};
+use super::node::{Array, Discoverable, FieldLiteral, Recursive, Wildcard};
 
 const NESTING_OPERATOR: &str = ".";
 const INDEX_OPERATOR: &str = "[";
 const INDEX_OPERATOR_END: &str = "]";
 const WILDCARD_OPERATOR: &str = "*";
+const RECURSIVE_OPERATOR: &str = "~";
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -39,6 +40,7 @@ pub enum Node {
     FieldLiteral(FieldLiteral),
     Array(Array),
     Wildcard(Wildcard),
+    Recursive(Recursive),
 }
 
 impl Node {
@@ -47,6 +49,7 @@ impl Node {
             Node::FieldLiteral(fl) => fl.find(bin, b),
             Node::Array(ar) => ar.find(bin, b),
             Node::Wildcard(w) => w.find(bin, b),
+            Node::Recursive(r) => r.find(bin, b),
         }
     }
 }
@@ -57,6 +60,7 @@ impl fmt::Display for Node {
             Node::FieldLiteral(fl) => write!(f, "{}", fl),
             Node::Array(ar) => write!(f, "{}", ar),
             Node::Wildcard(wc) => write!(f, "{}", wc),
+            Node::Recursive(r) => write!(f, ".{}", r),
         }
     }
 }
@@ -74,6 +78,33 @@ impl Path {
 
     pub fn pop(&mut self) -> Option<Node> {
         self.0.pop()
+    }
+
+    pub fn reverse(mut self) -> Path {
+        self.0.reverse();
+        self
+    }
+}
+
+impl Default for Path {
+    fn default() -> Self {
+        Path(vec![])
+    }
+}
+
+impl fmt::Display for Path {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut path = String::new();
+        for node in self.iter() {
+            match node {
+                Node::FieldLiteral(fl) => path.push_str(&format!(".{}", fl)),
+                Node::Array(ar) => path.push_str(&format!("{}", ar)),
+                Node::Wildcard(wc) => path.push_str(&format!(".{}", wc)),
+                Node::Recursive(r) => path.push_str(&format!(".{}", r)),
+            }
+        }
+
+        write!(f, "{}", path.trim_start_matches('.'))
     }
 }
 
@@ -135,8 +166,18 @@ impl Parser<'_> {
             NESTING_OPERATOR => self.parse(),
             INDEX_OPERATOR => self.parse_index(),
             WILDCARD_OPERATOR => Ok(Node::Wildcard(Wildcard)),
+            RECURSIVE_OPERATOR => self.parse_recursive(),
             _ => Ok(Node::FieldLiteral(FieldLiteral::new(token.unwrap()))),
         }
+    }
+
+    fn parse_recursive(&mut self) -> ParseResult<Node> {
+        let node = self.parse();
+        if let Err(ParseError::EOF) = node {
+            return Err(ParseError::UnexpectedEOF);
+        }
+
+        Ok(Node::Recursive(Recursive::new(node?)))
     }
 
     fn parse_index(&mut self) -> ParseResult<Node> {

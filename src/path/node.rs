@@ -7,6 +7,8 @@ use crate::bookmark::Bookmark;
 use crate::bookmark::MAX_POINTERS;
 use crate::Ptrs;
 
+use super::parser::Node;
+
 // Node is the type that a parser puts out. each
 // node should implement the trait functions below
 pub trait Discoverable {
@@ -134,6 +136,8 @@ impl fmt::Display for Array {
     }
 }
 
+// Wildcard will select all the children within the map we are currently
+// in.
 #[derive(Debug, PartialEq)]
 pub struct Wildcard;
 
@@ -168,5 +172,44 @@ impl Discoverable for Wildcard {
 impl fmt::Display for Wildcard {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "*")
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Recursive {
+    child: Box<Node>,
+}
+
+impl Recursive {
+    pub fn new(child: Node) -> Recursive {
+        Recursive {
+            child: Box::new(child),
+        }
+    }
+}
+
+impl Discoverable for Recursive {
+    // find returns a list of pointers to the
+    // child that matches the specified name.
+    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+        b.walk(&bin, &mut res, &|childb, res| {
+            if let Some(ptrs) = self.child.find(Rc::clone(&bin), childb) {
+                res.try_extend_from_slice(&ptrs[..]).unwrap();
+            }
+            true
+        });
+
+        if res.len() > 0 {
+            Some(res)
+        } else {
+            None
+        }
+    }
+}
+
+impl fmt::Display for Recursive {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "~{}", self.child)
     }
 }

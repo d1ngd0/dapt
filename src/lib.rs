@@ -178,7 +178,12 @@ mod tests {
                 "c": [1, 2, 3],
                 "d": {
                     "e": 1000,
-                    "f": "world"
+                    "f": "world",
+                    "deep": {
+                        "deeper": {
+                            "deepest": "hello"
+                        }
+                    }
                 },
                 "empty_array": [],
                 "empty_object": {}
@@ -190,6 +195,7 @@ mod tests {
         assert_eq!(d.get("a").unwrap().val::<usize>(), Some(1));
         assert_eq!(d.get("b").unwrap().str(), Some("hello"));
         assert_eq!(d.get("d.e").unwrap().val::<usize>(), Some(1000));
+        assert_eq!(d.get("~.deepest").unwrap().str(), Some("hello"));
 
         assert_eq!(
             r#"[1,2,3]"#,
@@ -207,13 +213,20 @@ mod tests {
             "[]",
             serde_json::to_string(&d.get("empty_array").unwrap()).unwrap()
         );
+
         assert_eq!(
             "{}",
             serde_json::to_string(&d.get("empty_object").unwrap()).unwrap()
         );
+
         assert_eq!(
-            "[1000,\"world\"]",
+            "[1000,\"world\",{\"deeper\":{\"deepest\":\"hello\"}}]",
             serde_json::to_string(&d.get("d.*").unwrap()).unwrap()
+        );
+
+        assert_eq!(
+            "{\"deepest\":\"hello\"}",
+            serde_json::to_string(&d.get("~.deeper").unwrap()).unwrap()
         );
     }
 }
