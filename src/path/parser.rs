@@ -2,21 +2,27 @@ use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use arrayvec::ArrayVec;
+
 use crate::binary::Binary;
 use crate::bookmark::{Bookmark, Ptrs};
 
 use super::lexer::Lexer;
-use super::node::{Array, Discoverable, FieldLiteral, Recursive, Wildcard};
+use super::node::{Array, Discoverable, FieldLiteral, First, Recursive, Wildcard};
 
 const NESTING_OPERATOR: &str = ".";
 const INDEX_OPERATOR: &str = "[";
 const INDEX_OPERATOR_END: &str = "]";
 const WILDCARD_OPERATOR: &str = "*";
 const RECURSIVE_OPERATOR: &str = "~";
+const FIRST_OPERATOR: &str = "{";
+const FIRST_OPERATOR_END: &str = "}";
+const FIRST_OPERATOR_SEP: &str = "|";
 
 #[derive(Debug)]
 pub enum ParseError {
     EOF,
+    EOS,
     UnexpectedEOF,
     MalformedPath(String),
     InvalidIndex(String),
@@ -26,6 +32,9 @@ impl ParseError {
     pub fn to_string(&self) -> String {
         match self {
             ParseError::EOF => "EOF".to_string(),
+            // used to signal the end of a section in operators like
+            // first or multi.
+            ParseError::EOS => "End Of Section".to_string(),
             ParseError::UnexpectedEOF => "Unexpected EOF".to_string(),
             ParseError::MalformedPath(s) => format!("Malformed path: {}", s),
             ParseError::InvalidIndex(s) => format!("Invalid index: {}", s),
@@ -41,6 +50,8 @@ pub enum Node {
     Array(Array),
     Wildcard(Wildcard),
     Recursive(Recursive),
+    First(First),
+    Path(Path),
 }
 
 impl Node {
@@ -50,7 +61,13 @@ impl Node {
             Node::Array(ar) => ar.find(bin, b),
             Node::Wildcard(w) => w.find(bin, b),
             Node::Recursive(r) => r.find(bin, b),
+            Node::First(f) => f.find(bin, b),
+            Node::Path(p) => p.find(bin, b),
         }
+    }
+
+    pub fn new_field_literal(field: &str) -> ParseResult<Node> {
+        Ok(Node::FieldLiteral(FieldLiteral::new(field)))
     }
 }
 
@@ -61,15 +78,42 @@ impl fmt::Display for Node {
             Node::Array(ar) => write!(f, "{}", ar),
             Node::Wildcard(wc) => write!(f, "{}", wc),
             Node::Recursive(r) => write!(f, ".{}", r),
+            Node::First(fr) => write!(f, "{}", fr),
+            Node::Path(p) => write!(f, "{}", p),
         }
     }
 }
 
+pub struct Parser<'a> {
+    lex: Lexer<'a>,
+}
+
+impl<'a> From<Lexer<'a>> for Parser<'a> {
+    fn from(lex: Lexer<'a>) -> Parser<'a> {
+        Parser { lex }
+    }
+}
+
+impl<'a> From<&'a str> for Parser<'a> {
+    fn from(path: &'a str) -> Parser<'a> {
+        Parser {
+            lex: Lexer::from(path),
+        }
+    }
+}
+
+// Path is a collection of nodes. It also impelmets the Discoverable
+// trait.
+#[derive(Debug, PartialEq)]
 pub struct Path(Vec<Node>);
 
 impl Path {
     pub fn new(path: &str) -> Result<Path, ParseError> {
         Path::try_from(path)
+    }
+
+    pub fn from_nodes(nodes: Vec<Node>) -> Path {
+        Path(nodes)
     }
 
     pub fn push(&mut self, node: Node) {
@@ -92,6 +136,30 @@ impl Default for Path {
     }
 }
 
+impl Discoverable for Path {
+    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+        let mut ptrs = ArrayVec::new();
+        ptrs.push(b);
+
+        for node in self.iter() {
+            let mut new_ptrs = ArrayVec::new();
+            for ptr in ptrs {
+                if let Some(node_ptrs) = node.find(Rc::clone(&bin), ptr) {
+                    new_ptrs.extend(node_ptrs);
+                }
+            }
+
+            ptrs = new_ptrs;
+        }
+
+        if ptrs.len() == 0 {
+            return None;
+        }
+
+        Some(ptrs)
+    }
+}
+
 impl fmt::Display for Path {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut path = String::new();
@@ -101,6 +169,8 @@ impl fmt::Display for Path {
                 Node::Array(ar) => path.push_str(&format!("{}", ar)),
                 Node::Wildcard(wc) => path.push_str(&format!(".{}", wc)),
                 Node::Recursive(r) => path.push_str(&format!(".{}", r)),
+                Node::First(f) => path.push_str(&format!(".{}", f)),
+                Node::Path(p) => path.push_str(&format!("{}", p)),
             }
         }
 
@@ -124,7 +194,7 @@ impl TryFrom<&str> for Path {
         let mut nodes = vec![];
 
         loop {
-            let node = p.parse();
+            let node = p.parse(Node::new_field_literal);
             match node {
                 Err(ParseError::EOF) => break,
                 Err(err) => Err(err)?,
@@ -136,43 +206,83 @@ impl TryFrom<&str> for Path {
     }
 }
 
-pub struct Parser<'a> {
-    lex: Lexer<'a>,
-}
-
-impl<'a> From<Lexer<'a>> for Parser<'a> {
-    fn from(lex: Lexer<'a>) -> Parser<'a> {
-        Parser { lex }
-    }
-}
-
-impl<'a> From<&'a str> for Parser<'a> {
-    fn from(path: &'a str) -> Parser<'a> {
-        Parser {
-            lex: Lexer::from(path),
-        }
-    }
-}
-
 impl Parser<'_> {
-    fn parse(&mut self) -> ParseResult<Node> {
+    fn parse<F>(&mut self, ext: F) -> ParseResult<Node>
+    where
+        F: Fn(&str) -> ParseResult<Node>,
+    {
         let token = self.lex.token();
         if let None = token {
             return Err(ParseError::EOF);
         }
+        let token = token.unwrap();
 
-        match token.unwrap() {
+        match token {
             // if we hit a nesting operator we should just try again
-            NESTING_OPERATOR => self.parse(),
+            NESTING_OPERATOR => self.parse(Node::new_field_literal),
             INDEX_OPERATOR => self.parse_index(),
             WILDCARD_OPERATOR => Ok(Node::Wildcard(Wildcard)),
             RECURSIVE_OPERATOR => self.parse_recursive(),
-            _ => Ok(Node::FieldLiteral(FieldLiteral::new(token.unwrap()))),
+            FIRST_OPERATOR => self.parse_first(),
+            _ => ext(token),
         }
     }
 
+    fn parse_first(&mut self) -> ParseResult<Node> {
+        let mut paths = vec![];
+
+        loop {
+            let (path, cont) = self.parse_path(|token| match token {
+                FIRST_OPERATOR_SEP => Err(ParseError::EOS),
+                FIRST_OPERATOR_END => Err(ParseError::EOF),
+                _ => Node::new_field_literal(token),
+            })?;
+
+            paths.push(path);
+
+            if !cont {
+                break;
+            }
+        }
+
+        Ok(Node::First(First::new(paths)))
+    }
+
+    // parse_path is a helper function that expects you to handle returning
+    // EOS when done parsing a path, and EOF when done parsing a list of
+    // paths. This is used for first, and multi. If you should continue the
+    // function will return true, if you should stop because EOF was returned
+    // from the parser it will return false
+    fn parse_path<F>(&mut self, ext: F) -> ParseResult<(Node, bool)>
+    where
+        F: Fn(&str) -> ParseResult<Node>,
+    {
+        let mut nodes = vec![];
+        let mut cont = true;
+        loop {
+            let node = self.parse(&ext);
+            match node {
+                Err(ParseError::EOS) => break,
+                Err(ParseError::EOF) => {
+                    cont = false;
+                    break;
+                }
+                Err(err) => Err(err)?,
+                Ok(n) => nodes.push(n),
+            };
+        }
+
+        if nodes.len() == 0 {
+            return Err(ParseError::MalformedPath(
+                "empty path in first operator".to_string(),
+            ));
+        }
+
+        Ok((Node::Path(Path::from_nodes(nodes)), cont))
+    }
+
     fn parse_recursive(&mut self) -> ParseResult<Node> {
-        let node = self.parse();
+        let node = self.parse(Node::new_field_literal);
         if let Err(ParseError::EOF) = node {
             return Err(ParseError::UnexpectedEOF);
         }
@@ -218,10 +328,10 @@ mod tests {
             let mut nodes = vec![];
             let expected: Vec<&str> = vec![$($args),*];
 
-            let mut node = p.parse();
+            let mut node = p.parse(Node::new_field_literal);
             while let Ok(n) = node {
                 nodes.push(n.to_string());
-                node = p.parse();
+                node = p.parse(Node::new_field_literal);
             }
 
             assert_eq!(nodes, expected);

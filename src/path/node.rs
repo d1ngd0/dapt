@@ -175,6 +175,9 @@ impl fmt::Display for Wildcard {
     }
 }
 
+// recursive will traverse the tree until it finds the node that matches.
+// `~.message` would match the `message` field in the json structure
+// `{"something":{ "something-else": { "message": "hello" }}}`.
 #[derive(Debug, PartialEq)]
 pub struct Recursive {
     child: Box<Node>,
@@ -211,5 +214,53 @@ impl Discoverable for Recursive {
 impl fmt::Display for Recursive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "~{}", self.child)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct First {
+    paths: Vec<Node>,
+}
+
+impl First {
+    pub fn new(paths: Vec<Node>) -> First {
+        First { paths }
+    }
+}
+
+impl Discoverable for First {
+    // find returns a list of pointers to the
+    // child that matches the specified name.
+    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+
+        for path in &self.paths {
+            if let Some(ptrs) = path.find(Rc::clone(&bin), b) {
+                res.try_extend_from_slice(&ptrs[..]).unwrap();
+                break;
+            }
+        }
+
+        if res.len() > 0 {
+            Some(res)
+        } else {
+            None
+        }
+    }
+}
+
+impl fmt::Display for First {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{")?;
+
+        for (x, path) in self.paths.iter().enumerate() {
+            if x > 0 {
+                write!(f, "|")?;
+            }
+            write!(f, "{}", path)?;
+        }
+
+        write!(f, "}}")?;
+        Ok(())
     }
 }
