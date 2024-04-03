@@ -217,6 +217,10 @@ impl fmt::Display for Recursive {
     }
 }
 
+// First will find the first non empty value and return that.
+// `{~.message|~.error}` would match the `message` field in the json
+// structure `{"message": "hello"}` and the `error` field in the json
+// structure `{"error": "something went wrong"}`.
 #[derive(Debug, PartialEq)]
 pub struct First {
     paths: Vec<Node>,
@@ -261,6 +265,56 @@ impl fmt::Display for First {
         }
 
         write!(f, "}}")?;
+        Ok(())
+    }
+}
+
+// Multi works much like first, but will match on all the values
+// that are not empty. example `(~.message,~.error)` would match
+// both fields in the json structure:
+// `{"message": "hello", "error": "something went wrong"}`.
+#[derive(Debug, PartialEq)]
+pub struct Multi {
+    paths: Vec<Node>,
+}
+
+impl Multi {
+    pub fn new(paths: Vec<Node>) -> Multi {
+        Multi { paths }
+    }
+}
+
+impl Discoverable for Multi {
+    // find returns a list of pointers to the
+    // child that matches the specified name.
+    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+
+        for path in &self.paths {
+            if let Some(ptrs) = path.find(Rc::clone(&bin), b) {
+                res.try_extend_from_slice(&ptrs[..]).unwrap();
+            }
+        }
+
+        if res.len() == 0 {
+            return None;
+        }
+        Some(res)
+    }
+}
+
+impl fmt::Display for Multi {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(")?;
+
+        for (x, path) in self.paths.iter().enumerate() {
+            if x > 0 {
+                write!(f, ",")?;
+            }
+            write!(f, "{}", path)?;
+        }
+
+        write!(f, ")")?;
         Ok(())
     }
 }

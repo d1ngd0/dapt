@@ -8,7 +8,7 @@ use crate::binary::Binary;
 use crate::bookmark::{Bookmark, Ptrs};
 
 use super::lexer::Lexer;
-use super::node::{Array, Discoverable, FieldLiteral, First, Recursive, Wildcard};
+use super::node::{Array, Discoverable, FieldLiteral, First, Multi, Recursive, Wildcard};
 
 const NESTING_OPERATOR: &str = ".";
 const INDEX_OPERATOR: &str = "[";
@@ -18,6 +18,9 @@ const RECURSIVE_OPERATOR: &str = "~";
 const FIRST_OPERATOR: &str = "{";
 const FIRST_OPERATOR_END: &str = "}";
 const FIRST_OPERATOR_SEP: &str = "|";
+const MULTI_OPERATOR: &str = "(";
+const MULTI_OPERATOR_END: &str = ")";
+const MULTI_OPERATOR_SEP: &str = ",";
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -51,6 +54,7 @@ pub enum Node {
     Wildcard(Wildcard),
     Recursive(Recursive),
     First(First),
+    Multi(Multi),
     Path(Path),
 }
 
@@ -62,6 +66,7 @@ impl Node {
             Node::Wildcard(w) => w.find(bin, b),
             Node::Recursive(r) => r.find(bin, b),
             Node::First(f) => f.find(bin, b),
+            Node::Multi(m) => m.find(bin, b),
             Node::Path(p) => p.find(bin, b),
         }
     }
@@ -79,6 +84,7 @@ impl fmt::Display for Node {
             Node::Wildcard(wc) => write!(f, "{}", wc),
             Node::Recursive(r) => write!(f, ".{}", r),
             Node::First(fr) => write!(f, "{}", fr),
+            Node::Multi(m) => write!(f, "{}", m),
             Node::Path(p) => write!(f, "{}", p),
         }
     }
@@ -170,6 +176,7 @@ impl fmt::Display for Path {
                 Node::Wildcard(wc) => path.push_str(&format!(".{}", wc)),
                 Node::Recursive(r) => path.push_str(&format!(".{}", r)),
                 Node::First(f) => path.push_str(&format!(".{}", f)),
+                Node::Multi(m) => path.push_str(&format!(".{}", m)),
                 Node::Path(p) => path.push_str(&format!("{}", p)),
             }
         }
@@ -223,9 +230,30 @@ impl Parser<'_> {
             INDEX_OPERATOR => self.parse_index(),
             WILDCARD_OPERATOR => Ok(Node::Wildcard(Wildcard)),
             RECURSIVE_OPERATOR => self.parse_recursive(),
+            MULTI_OPERATOR => self.parse_multi(),
             FIRST_OPERATOR => self.parse_first(),
             _ => ext(token),
         }
+    }
+
+    fn parse_multi(&mut self) -> ParseResult<Node> {
+        let mut paths = vec![];
+
+        loop {
+            let (path, cont) = self.parse_path(|token| match token {
+                MULTI_OPERATOR_SEP => Err(ParseError::EOS),
+                MULTI_OPERATOR_END => Err(ParseError::EOF),
+                _ => Node::new_field_literal(token),
+            })?;
+
+            paths.push(path);
+
+            if !cont {
+                break;
+            }
+        }
+
+        Ok(Node::Multi(Multi::new(paths)))
     }
 
     fn parse_first(&mut self) -> ParseResult<Node> {
