@@ -2,7 +2,7 @@ use arrayvec::ArrayVec;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::binary::{BArray, BMap, Binary, TYPE_ARRAY, TYPE_MAP};
+use crate::binary::{BArray, BKeyValue, BMap, Binary, TYPE_ARRAY, TYPE_MAP};
 use crate::bookmark::Bookmark;
 use crate::bookmark::MAX_POINTERS;
 use crate::Ptrs;
@@ -213,7 +213,7 @@ impl Discoverable for Recursive {
 
 impl fmt::Display for Recursive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "~{}", self.child)
+        write!(f, "~.{}", self.child)
     }
 }
 
@@ -316,5 +316,74 @@ impl fmt::Display for Multi {
 
         write!(f, ")")?;
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct Regexp {
+    name: regex::Regex,
+}
+
+impl Regexp {
+    pub fn new(name: &str) -> Regexp {
+        // name is a string which optionally is wrapped in double quotes.
+        // here we remove the double quotes if they exist and remove any
+        // escape characters.
+        Regexp {
+            name: regex::Regex::new(name).unwrap(),
+        }
+    }
+}
+
+impl PartialEq for Regexp {
+    fn eq(&self, other: &Self) -> bool {
+        self.name.as_str() == other.name.as_str()
+    }
+}
+
+impl Discoverable for Regexp {
+    // find returns a list of pointers to the
+    // child that matches the specified name.
+    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+
+        let n = b.value_node(&bin)?;
+        match n.type_of(&bin)? {
+            TYPE_MAP => {
+                let bcoll: BMap = n.token_at(&bin)?.try_into().unwrap();
+                let mut indexes = vec![Bookmark::new(0); bcoll.length()];
+                bcoll.child_indexes(&mut indexes);
+
+                println!("{:?}", indexes);
+                for i in indexes {
+                    let child = match bin.token_at(i.into()) {
+                        Some(c) => c,
+                        None => continue,
+                    };
+
+                    let child = BKeyValue::try_from(child).unwrap();
+
+                    if self.name.is_match(child.key()) {
+                        res.push(i.into());
+                    }
+                }
+            }
+            _ => (),
+        }
+
+        if res.len() > 0 {
+            Some(res)
+        } else {
+            None
+        }
+    }
+}
+
+impl fmt::Display for Regexp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // if there is a . or a " in the name we need to wrap
+        // it in double quotes. We will wrap spaces in double
+        // quotes too, even though we don't have to.
+        write!(f, "/{}/", self.name)
     }
 }

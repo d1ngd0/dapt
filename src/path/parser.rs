@@ -8,7 +8,7 @@ use crate::binary::Binary;
 use crate::bookmark::{Bookmark, Ptrs};
 
 use super::lexer::Lexer;
-use super::node::{Array, Discoverable, FieldLiteral, First, Multi, Recursive, Wildcard};
+use super::node::{Array, Discoverable, FieldLiteral, First, Multi, Recursive, Regexp, Wildcard};
 
 const NESTING_OPERATOR: &str = ".";
 const INDEX_OPERATOR: &str = "[";
@@ -21,6 +21,8 @@ const FIRST_OPERATOR_SEP: &str = "|";
 const MULTI_OPERATOR: &str = "(";
 const MULTI_OPERATOR_END: &str = ")";
 const MULTI_OPERATOR_SEP: &str = ",";
+const REGEXP_OPERATOR: &str = "/";
+const STRING_WRAP: &str = "\"";
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -56,6 +58,7 @@ pub enum Node {
     First(First),
     Multi(Multi),
     Path(Path),
+    Regexp(Regexp),
 }
 
 impl Node {
@@ -68,6 +71,7 @@ impl Node {
             Node::First(f) => f.find(bin, b),
             Node::Multi(m) => m.find(bin, b),
             Node::Path(p) => p.find(bin, b),
+            Node::Regexp(r) => r.find(bin, b),
         }
     }
 
@@ -86,6 +90,7 @@ impl fmt::Display for Node {
             Node::First(fr) => write!(f, "{}", fr),
             Node::Multi(m) => write!(f, "{}", m),
             Node::Path(p) => write!(f, "{}", p),
+            Node::Regexp(r) => write!(f, "{}", r),
         }
     }
 }
@@ -178,6 +183,7 @@ impl fmt::Display for Path {
                 Node::First(f) => path.push_str(&format!(".{}", f)),
                 Node::Multi(m) => path.push_str(&format!(".{}", m)),
                 Node::Path(p) => path.push_str(&format!("{}", p)),
+                Node::Regexp(r) => path.push_str(&format!(".{}", r)),
             }
         }
 
@@ -227,12 +233,46 @@ impl Parser<'_> {
         match token {
             // if we hit a nesting operator we should just try again
             NESTING_OPERATOR => self.parse(Node::new_field_literal),
+            STRING_WRAP => self.parse_wrapped_field_literal(),
             INDEX_OPERATOR => self.parse_index(),
             WILDCARD_OPERATOR => Ok(Node::Wildcard(Wildcard)),
             RECURSIVE_OPERATOR => self.parse_recursive(),
             MULTI_OPERATOR => self.parse_multi(),
             FIRST_OPERATOR => self.parse_first(),
+            REGEXP_OPERATOR => self.parse_regexp(),
             _ => ext(token),
+        }
+    }
+
+    fn parse_wrapped_field_literal(&mut self) -> ParseResult<Node> {
+        let node = match self.lex.token() {
+            Some(tok) => FieldLiteral::new(tok),
+            None => return Err(ParseError::UnexpectedEOF),
+        };
+
+        match self.lex.token() {
+            Some(STRING_WRAP) => Ok(Node::FieldLiteral(node)),
+            Some(token) => Err(ParseError::MalformedPath(format!(
+                "unexpected token: {}, expected string wrap",
+                token
+            ))),
+            None => Err(ParseError::UnexpectedEOF),
+        }
+    }
+
+    fn parse_regexp(&mut self) -> ParseResult<Node> {
+        let reg = match self.lex.token() {
+            Some(reg) => Regexp::new(reg),
+            None => return Err(ParseError::UnexpectedEOF),
+        };
+
+        match self.lex.token() {
+            Some(REGEXP_OPERATOR) => Ok(Node::Regexp(reg)),
+            Some(token) => Err(ParseError::MalformedPath(format!(
+                "unexpected token: {}, expected regex operator",
+                token
+            ))),
+            None => Err(ParseError::UnexpectedEOF),
         }
     }
 

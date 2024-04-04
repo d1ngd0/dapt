@@ -17,11 +17,16 @@ const TOKEN_STRING_WRAP: char = '"';
 pub struct Lexer<'a> {
     path: &'a str,
     head: usize,
+    escape_token: Option<char>,
 }
 
 impl<'a> From<&'a str> for Lexer<'a> {
     fn from(path: &'a str) -> Lexer<'a> {
-        Lexer { path, head: 0 }
+        Lexer {
+            path,
+            head: 0,
+            escape_token: None,
+        }
     }
 }
 
@@ -35,7 +40,6 @@ impl<'a> Lexer<'a> {
         let mut tok: Option<&str> = None;
         let mut next_index = self.head;
         let mut escape_next = false;
-        let mut escape_all = false;
 
         'charloop: for (i, char) in c {
             let index = i + self.head;
@@ -46,6 +50,11 @@ impl<'a> Lexer<'a> {
                 | TOKEN_MULTI_CLOSE | TOKEN_FIRST_SEP | TOKEN_MULTI_SEP => {
                     // if the previous token was an escape token, we just want to add this to the
                     // existing token
+                    let escape_all = match self.escape_token {
+                        None => false,
+                        Some(_) => true,
+                    };
+
                     if escape_next || escape_all {
                         tok = Some(&self.path[self.head..index + char.len_utf8()]);
                         next_index = index + char.len_utf8();
@@ -79,14 +88,34 @@ impl<'a> Lexer<'a> {
                         continue;
                     }
 
-                    // invert escape to toggle on and off escaping all
-                    escape_all = !escape_all;
+                    // make sure the ending token matches the starting token
+                    // we may add more string wrappers in the future, besides
+                    // these two.
+                    if let Some(t) = self.escape_token {
+                        if t != char {
+                            continue;
+                        }
+                    }
 
-                    if !escape_all {
-                        // after we turn it off collect the token, without
-                        // grabbing the ending "
+                    // return the wrapping token as it's own token.
+                    if let None = tok {
                         tok = Some(&self.path[self.head..index + char.len_utf8()]);
                         next_index = index + char.len_utf8();
+
+                        // toggle escaping when we encounter an escape token
+                        match self.escape_token {
+                            None => self.escape_token = Some(char),
+                            Some(_) => self.escape_token = None,
+                        }
+
+                        break 'charloop;
+                    }
+
+                    if let Some(_) = self.escape_token {
+                        // after we turn it off collect the token, without
+                        // grabbing the ending "
+                        tok = Some(&self.path[self.head..index]);
+                        next_index = index;
                         break 'charloop;
                     }
 
@@ -144,14 +173,22 @@ mod test {
             "}"
         );
         test_lexor!("labels\\.hostname", "labels\\.hostname");
-        test_lexor!(r#""labels.hostname""#, "\"labels.hostname\"");
-        test_lexor!(r#""some\"thing""#, r#""some\"thing""#);
+        test_lexor!(r#""labels.hostname""#, "\"", "labels.hostname", "\"");
+        test_lexor!(r#""some\"thing""#, "\"", "some\\\"thing", "\"");
         test_lexor!(
             r#""one""two""three""four""#,
-            "\"one\"",
-            "\"two\"",
-            "\"three\"",
-            "\"four\""
+            "\"",
+            "one",
+            "\"",
+            "\"",
+            "two",
+            "\"",
+            "\"",
+            "three",
+            "\"",
+            "\"",
+            "four",
+            "\""
         );
         test_lexor!(
             "€€€.€€€.€.asdf.asdf",
@@ -165,6 +202,7 @@ mod test {
             ".",
             "asdf"
         );
-        test_lexor!("/.*/.something", "/.*/", ".", "something");
+        test_lexor!("/.*/.something", "/", ".*", "/", ".", "something");
+        test_lexor!("/asd\"asdf/", "/", "asd\"asdf", "/");
     }
 }

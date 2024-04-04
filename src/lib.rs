@@ -248,5 +248,17 @@ mod tests {
             "[{\"deepest\":\"hello\"},1]",
             serde_json::to_string(&d.get("(m,d.deep.deeper,a)").unwrap()).unwrap()
         );
+
+        // regex match
+        assert_eq!(
+            "[[],{}]",
+            serde_json::to_string(&d.get("/empty.*/").unwrap()).unwrap()
+        );
+
+        // recursive regex
+        assert_eq!(
+            "[{\"deeper\":{\"deepest\":\"hello\"}},{\"deepest\":\"hello\"},\"hello\"]",
+            serde_json::to_string(&d.get("~./deep.*/").unwrap()).unwrap()
+        );
     }
 }
