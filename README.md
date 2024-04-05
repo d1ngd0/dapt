@@ -2,7 +2,7 @@
 
 Dapt is in heavy development, any use in production might see breaking changes. If you have any suggestions or issues please open an issue or PR.
 
-[![Build Status](https://travis-ci.com/bradyjoestar/dapt.svg?branch=master)](https://travis-ci.com/bradyjoestar/dapt)
+![example workflow](https://github.com/d1ngd0/dapt/actions/workflows/rust.yml/badge.svg)
 [![Crates.io](https://img.shields.io/crates/v/dapt)](https://crates.io/crates/dapt)
 [![Docs.rs](https://docs.rs/dapt/badge.svg)](https://docs.rs/dapt)
 
