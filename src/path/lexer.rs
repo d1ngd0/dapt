@@ -139,6 +139,7 @@ impl<'a> Lexer<'a> {
     }
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
 
