@@ -1,5 +1,11 @@
 ## Dapt
 
+Dapt is in heavy development, any use in production might see breaking changes. If you have any suggestions or issues please open an issue or PR.
+
+[![Build Status](https://travis-ci.com/bradyjoestar/dapt.svg?branch=master)](https://travis-ci.com/bradyjoestar/dapt)
+[![Crates.io](https://img.shields.io/crates/v/dapt)](https://crates.io/crates/dapt)
+[![Docs.rs](https://docs.rs/dapt/badge.svg)](https://docs.rs/dapt)
+
 Dapt (data packet) is a rust object that allows for serialization and deserialization of dynamic data utilizing the `serde` crate. Dapt allows you to traverse your data structure with a `jq` ish syntax. The intent behind the project is to act as the data packet for a stream processing engine which handles unstructured data, though it is generic enough to be used for many things.
 
 ## Example
