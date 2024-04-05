@@ -4,10 +4,10 @@ const TOKEN_ARRAY_OPEN: char = '[';
 const TOKEN_ARRAY_CLOSE: char = ']';
 const TOKEN_FIRST_OPEN: char = '{';
 const TOKEN_FIRST_CLOSE: char = '}';
-const TOKEN_FIRST_SEP: char = '|';
+const TOKEN_FIRST_SEP: char = ',';
 const TOKEN_MULTI_OPEN: char = '(';
 const TOKEN_MULTI_CLOSE: char = ')';
-const TOKEN_MULTI_SEP: char = ',';
+const TOKEN_MULTI_SEP: char = '|';
 const TOKEN_WILDCARD: char = '*';
 const TOKEN_REGEX: char = '/';
 

@@ -258,7 +258,7 @@ impl fmt::Display for First {
 
         for (x, path) in self.paths.iter().enumerate() {
             if x > 0 {
-                write!(f, "|")?;
+                write!(f, ",")?;
             }
             write!(f, "{}", path)?;
         }
@@ -308,7 +308,7 @@ impl fmt::Display for Multi {
 
         for (x, path) in self.paths.iter().enumerate() {
             if x > 0 {
-                write!(f, ",")?;
+                write!(f, "|")?;
             }
             write!(f, "{}", path)?;
         }

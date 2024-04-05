@@ -71,13 +71,13 @@ fn test_deserialize() {
     // first match test
     assert_eq!(
         "{\"deepest\":\"hello\"}",
-        serde_json::to_string(&d.get("{m|d.deep.deeper|a}").unwrap()).unwrap()
+        serde_json::to_string(&d.get("{m,d.deep.deeper,a}").unwrap()).unwrap()
     );
 
     // multiple matches test
     assert_eq!(
         "[{\"deepest\":\"hello\"},1]",
-        serde_json::to_string(&d.get("(m,d.deep.deeper,a)").unwrap()).unwrap()
+        serde_json::to_string(&d.get("(m|d.deep.deeper|a)").unwrap()).unwrap()
     );
 
     // regex match

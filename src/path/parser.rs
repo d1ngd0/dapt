@@ -16,10 +16,10 @@ const WILDCARD_OPERATOR: &str = "*";
 const RECURSIVE_OPERATOR: &str = "~";
 const FIRST_OPERATOR: &str = "{";
 const FIRST_OPERATOR_END: &str = "}";
-const FIRST_OPERATOR_SEP: &str = "|";
+const FIRST_OPERATOR_SEP: &str = ",";
 const MULTI_OPERATOR: &str = "(";
 const MULTI_OPERATOR_END: &str = ")";
-const MULTI_OPERATOR_SEP: &str = ",";
+const MULTI_OPERATOR_SEP: &str = "|";
 const REGEXP_OPERATOR: &str = "/";
 const STRING_WRAP: &str = "\"";
 
