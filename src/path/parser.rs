@@ -1,6 +1,5 @@
 use std::fmt;
 use std::ops::Deref;
-use std::rc::Rc;
 
 use arrayvec::ArrayVec;
 
@@ -62,7 +61,7 @@ pub enum Node {
 }
 
 impl Node {
-    pub fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+    pub fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
         match self {
             Node::FieldLiteral(fl) => fl.find(bin, b),
             Node::Array(ar) => ar.find(bin, b),
@@ -148,14 +147,14 @@ impl Default for Path {
 }
 
 impl Discoverable for Path {
-    fn find(&self, bin: Rc<Binary>, b: Bookmark) -> Option<Ptrs> {
+    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
         let mut ptrs = ArrayVec::new();
         ptrs.push(b);
 
         for node in self.iter() {
             let mut new_ptrs = ArrayVec::new();
             for ptr in ptrs {
-                if let Some(node_ptrs) = node.find(Rc::clone(&bin), ptr) {
+                if let Some(node_ptrs) = node.find(bin, ptr) {
                     new_ptrs.extend(node_ptrs);
                 }
             }

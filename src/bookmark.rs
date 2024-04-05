@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use arrayvec::ArrayVec;
 
@@ -49,7 +49,7 @@ impl Bookmark {
     // value_node returns a bookmark pointing to a value. If the
     // bookmark was pointing to a Key value it will traverse down
     // towards the value.
-    pub fn value_node<'a>(&self, bin: &'a Rc<Binary>) -> Option<Bookmark> {
+    pub fn value_node<'a>(&self, bin: &Binary) -> Option<Bookmark> {
         let loc = match self.type_of(bin)? {
             TYPE_KEYVAL => {
                 let kv = BKeyValue::try_from(self.token_at(bin)?).unwrap();
@@ -61,7 +61,7 @@ impl Bookmark {
         Some(loc)
     }
 
-    pub fn is_array<'a>(&self, bin: &'a Rc<Binary>) -> bool {
+    pub fn is_array<'a>(&self, bin: &'a Arc<Binary>) -> bool {
         let t = self.token_at(bin);
         if let None = t {
             return false;
@@ -74,7 +74,7 @@ impl Bookmark {
         true
     }
 
-    pub fn is_object<'a>(&self, bin: &'a Rc<Binary>) -> bool {
+    pub fn is_object<'a>(&self, bin: &'a Arc<Binary>) -> bool {
         let t = self.token_at(bin);
         if let None = t {
             return false;
@@ -87,15 +87,15 @@ impl Bookmark {
         true
     }
 
-    pub fn type_of<'a>(&self, bin: &'a Rc<Binary>) -> Option<u8> {
+    pub fn type_of<'a>(&self, bin: &Binary) -> Option<u8> {
         bin.type_at(self.0)
     }
 
-    pub fn token_at<'a>(&self, bin: &'a Rc<Binary>) -> Option<BToken<'a>> {
+    pub fn token_at<'a>(&self, bin: &'a Binary) -> Option<BToken<'a>> {
         bin.token_at(self.0)
     }
 
-    // pub fn key<'a>(&self, relative: Option<Bookmark>, bin: &'a Rc<Binary>) -> Option<String> {
+    // pub fn key<'a>(&self, relative: Option<Bookmark>, bin: &'a Arc<Binary>) -> Option<String> {
     //     let mut t = bin.token_at(self.value_node(bin)?.index())?;
     //     let mut path = Path::default();
 
@@ -114,7 +114,7 @@ impl Bookmark {
     //     Some(path.reverse().to_string())
     // }
 
-    pub fn walk<'a, F, T>(&self, bin: &'a Rc<Binary>, ob: &mut T, f: &F) -> bool
+    pub fn walk<'a, F, T>(&self, bin: &'a Binary, ob: &mut T, f: &F) -> bool
     where
         F: Fn(Bookmark, &mut T) -> bool,
     {

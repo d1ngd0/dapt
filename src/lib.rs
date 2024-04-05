@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use arrayvec::ArrayVec;
 use binary::{Any, Binary, BinaryVisitor, Deserialize, Number, SerializeBookmark};
@@ -16,7 +16,7 @@ mod path;
 pub struct Dapt {
     iter_loc: usize,
     ptrs: Ptrs,
-    b: Rc<Binary>,
+    b: Arc<Binary>,
 }
 
 impl Default for Dapt {
@@ -26,7 +26,7 @@ impl Default for Dapt {
         let mut d = Dapt {
             iter_loc: 0,
             ptrs: ArrayVec::new(),
-            b: Rc::new(Binary::default()),
+            b: Arc::new(Binary::default()),
         };
 
         d.ptrs.push(0.into());
@@ -47,7 +47,7 @@ impl<'de> serde::de::Deserialize<'de> for Dapt {
         Ok(Dapt {
             ptrs,
             iter_loc: 0,
-            b: Rc::new(visitor.consume()),
+            b: Arc::new(visitor.consume()),
         })
     }
 }
@@ -82,7 +82,7 @@ impl Iterator for Dapt {
         Some(Dapt {
             iter_loc: 0,
             ptrs: ArrayVec::from(ptrs),
-            b: Rc::clone(&self.b),
+            b: Arc::clone(&self.b),
         })
     }
 }
@@ -140,7 +140,7 @@ impl Dapt {
         let mut d = Dapt {
             iter_loc: 0,
             ptrs: self.ptrs.clone(),
-            b: Rc::clone(&self.b),
+            b: Arc::clone(&self.b),
         };
 
         for node in path.iter() {
@@ -154,7 +154,7 @@ impl Dapt {
         let mut ptrs = ArrayVec::new();
 
         for ptr in self.ptrs.iter() {
-            let node_ptrs = n.find(Rc::clone(&self.b), *ptr);
+            let node_ptrs = n.find(self.b.as_ref(), *ptr);
             if let Some(node_ptrs) = node_ptrs {
                 ptrs.try_extend_from_slice(&node_ptrs[..])?;
             }

@@ -1,4 +1,5 @@
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::sync::Arc;
+use std::{cell::RefCell, fmt};
 
 use serde::ser::Serialize;
 use serde::{
@@ -193,11 +194,11 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
 
 pub struct SerializeBookmark<'a> {
     bookmark: Bookmark,
-    bin: &'a Rc<Binary>,
+    bin: &'a Arc<Binary>,
 }
 
 impl<'a> SerializeBookmark<'a> {
-    pub fn new(bookmark: Bookmark, bin: &'a Rc<Binary>) -> Self {
+    pub fn new(bookmark: Bookmark, bin: &'a Arc<Binary>) -> Self {
         Self { bookmark, bin }
     }
 }
