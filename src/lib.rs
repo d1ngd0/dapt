@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrayvec::ArrayVec;
-use binary::{Any, Binary, BinaryVisitor, Deserialize, Number, SerializeBookmark};
+use binary::{Binary, BinaryVisitor, SerializeBookmark};
 use bookmark::{Ptrs, MAX_POINTERS};
 use path::parser::Node;
 use serde::ser::SerializeSeq;
@@ -12,6 +12,9 @@ mod bookmark;
 mod error;
 mod path;
 
+pub use binary::Any;
+pub use binary::Deserialize;
+pub use binary::Number;
 pub use error::Error;
 pub use path::parser::Path;
 
