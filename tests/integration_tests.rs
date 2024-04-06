@@ -1,4 +1,4 @@
-use dapt::Dapt;
+use dapt::{Dapt, Path};
 
 #[test]
 fn test_deserialize() {
@@ -91,4 +91,28 @@ fn test_deserialize() {
         "[{\"deeper\":{\"deepest\":\"hello\"}},{\"deepest\":\"hello\"},\"hello\"]",
         serde_json::to_string(&d.get("~./deep.*/").unwrap()).unwrap()
     );
+}
+
+macro_rules! test_path {
+    ($path:expr) => {
+        let p = Path::try_from($path).unwrap();
+        assert_eq!($path, p.to_string());
+    };
+}
+
+#[test]
+fn test_path() {
+    test_path!("a");
+    test_path!("a.{a,b}");
+    test_path!("a.(a|b)");
+    test_path!("/regex/");
+    test_path!("re.~.crusive");
+    test_path!("a[1].*");
+    test_path!("a[1].{a,b}");
+    test_path!("a[1].(a|b)");
+    test_path!("a[1].~.b");
+
+    let p = Path::try_from("a.{invalid|path}");
+    println!("{:?}", p);
+    assert!(p.is_err());
 }

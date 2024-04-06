@@ -122,21 +122,8 @@ impl Path {
         Path::try_from(path)
     }
 
-    pub fn from_nodes(nodes: Vec<Node>) -> Path {
+    fn from_nodes(nodes: Vec<Node>) -> Path {
         Path(nodes)
-    }
-
-    pub fn push(&mut self, node: Node) {
-        self.0.push(node);
-    }
-
-    pub fn pop(&mut self) -> Option<Node> {
-        self.0.pop()
-    }
-
-    pub fn reverse(mut self) -> Path {
-        self.0.reverse();
-        self
     }
 }
 
@@ -282,6 +269,10 @@ impl Parser<'_> {
             let (path, cont) = self.parse_path(|token| match token {
                 MULTI_OPERATOR_SEP => Err(ParseError::EOS),
                 MULTI_OPERATOR_END => Err(ParseError::EOF),
+                MULTI_OPERATOR => Err(ParseError::MalformedPath("unexpected (".to_string())),
+                FIRST_OPERATOR => Err(ParseError::MalformedPath("unexpected {".to_string())),
+                FIRST_OPERATOR_END => Err(ParseError::MalformedPath("unexpected }".to_string())),
+                FIRST_OPERATOR_SEP => Err(ParseError::MalformedPath("unexpected ,".to_string())),
                 _ => Node::new_field_literal(token),
             })?;
 
@@ -302,6 +293,10 @@ impl Parser<'_> {
             let (path, cont) = self.parse_path(|token| match token {
                 FIRST_OPERATOR_SEP => Err(ParseError::EOS),
                 FIRST_OPERATOR_END => Err(ParseError::EOF),
+                FIRST_OPERATOR => Err(ParseError::MalformedPath("unexpected {".to_string())),
+                MULTI_OPERATOR => Err(ParseError::MalformedPath("unexpected (".to_string())),
+                MULTI_OPERATOR_END => Err(ParseError::MalformedPath("unexpected )".to_string())),
+                MULTI_OPERATOR_SEP => Err(ParseError::MalformedPath("unexpected |".to_string())),
                 _ => Node::new_field_literal(token),
             })?;
 

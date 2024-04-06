@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrayvec::ArrayVec;
 use binary::{Any, Binary, BinaryVisitor, Deserialize, Number, SerializeBookmark};
 use bookmark::{Ptrs, MAX_POINTERS};
-use path::parser::{Node, Path};
+use path::parser::Node;
 use serde::ser::SerializeSeq;
 use serde::Deserializer;
 
@@ -11,6 +11,9 @@ mod binary;
 mod bookmark;
 mod error;
 mod path;
+
+pub use error::Error;
+pub use path::parser::Path;
 
 #[derive(Debug)]
 pub struct Dapt {
