@@ -40,6 +40,16 @@ impl Default for Dapt {
     }
 }
 
+impl Clone for Dapt {
+    fn clone(&self) -> Self {
+        Dapt {
+            iter_loc: 0,
+            ptrs: self.ptrs.clone(),
+            b: Arc::clone(&self.b),
+        }
+    }
+}
+
 impl<'de> serde::de::Deserialize<'de> for Dapt {
     fn deserialize<D>(deserializer: D) -> Result<Dapt, D::Error>
     where
