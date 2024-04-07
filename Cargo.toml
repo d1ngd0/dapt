@@ -13,10 +13,12 @@ base64 = "0.21.5"
 byteorder = "1.5.0"
 regex = "1.10.4"
 serde = { version = "1.0.115", features = ["derive"] }
-serde_json = "1.0.115"
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
+serde_cbor = "0.11.2"
+serde_json = "1.0.115"
+serde_yaml = "0.9.34"
 
 [[bench]]
 name = "bench"
