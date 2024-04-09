@@ -11,6 +11,7 @@ mod binary;
 mod bookmark;
 mod error;
 mod path;
+mod query;
 
 pub use binary::Any;
 pub use binary::Deserialize;
