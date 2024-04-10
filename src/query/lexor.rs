@@ -1,5 +1,5 @@
-const TOKEN_KEY: char = '\'';
-const TOKEN_STRING_LITERAL: char = '"';
+const TOKEN_KEY: char = '"';
+const TOKEN_STRING_LITERAL: char = '\'';
 const TOKEN_ESCAPE: char = '\\';
 const TOKEN_EQUAL: char = '=';
 const TOKEN_NEGATE: char = '!';
@@ -27,7 +27,7 @@ impl<'a> From<&'a str> for Lexer<'a> {
 impl<'a> Lexer<'a> {
     // whitespace_offset will return the number of bytes from
     // the header that are whitespace.
-    pub fn consume_whitespace(&mut self) {
+    fn consume_whitespace(&mut self) {
         let c = self.path[self.head..].chars();
 
         for char in c {
@@ -46,7 +46,23 @@ impl<'a> Lexer<'a> {
     pub fn token(&mut self) -> Option<&'a str> {
         let (tok, next_index) = self.peak()?;
         self.head = next_index;
-        Some(tok)
+
+        match tok {
+            // by doing a little work in special cases we can make sure
+            // we return whole tokens.
+            "=" | ">" | "<" | "!" => {
+                if let Some(next) = self.peak() {
+                    if next.0 == "=" {
+                        self.head = next.1;
+                        return Some(&self.path[self.head - 2..self.head]);
+                    }
+                }
+
+                Some(tok)
+            }
+            // default case just let it fall through
+            _ => Some(tok),
+        }
     }
 
     pub fn peak(&mut self) -> Option<(&'a str, usize)> {
@@ -248,15 +264,13 @@ mod test {
             "'",
             "*[0].name",
             "'",
-            "=",
-            "=",
+            "==",
             "5",
             "AND",
             "'",
             "chiken",
             "'",
-            "!",
-            "=",
+            "!=",
             "'",
             "egg",
             "'"
