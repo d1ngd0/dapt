@@ -39,30 +39,20 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    // consumed returns the content which has already been tokenized
+    // this is useful for creating error messages that point to where we
+    // last were. This will not show the any peak tokens.
     pub fn consumed(&self) -> &'a str {
         &self.path[..self.head]
     }
 
+    // token returns the next token in the path. When there are no more tokens
+    // it returns None. All tokens returns are references to the original string
+    // meaning all escape characters are still present.
     pub fn token(&mut self) -> Option<&'a str> {
         let (tok, next_index) = self.peak()?;
         self.head = next_index;
-
-        match tok {
-            // by doing a little work in special cases we can make sure
-            // we return whole tokens.
-            "=" | ">" | "<" | "!" => {
-                if let Some(next) = self.peak() {
-                    if next.0 == "=" {
-                        self.head = next.1;
-                        return Some(&self.path[self.head - 2..self.head]);
-                    }
-                }
-
-                Some(tok)
-            }
-            // default case just let it fall through
-            _ => Some(tok),
-        }
+        Some(tok)
     }
 
     pub fn peak(&mut self) -> Option<(&'a str, usize)> {
@@ -72,9 +62,32 @@ impl<'a> Lexer<'a> {
 
         self.consume_whitespace();
 
-        let c = self.path[self.head..].char_indices();
+        let (tok, next_index) = self.next(self.head)?;
+        match tok {
+            // by doing a little work in special cases we can make sure
+            // we return whole tokens.
+            "=" | ">" | "<" | "!" => {
+                if let Some((tok, next_index)) = self.next(next_index) {
+                    if tok == "=" {
+                        return Some((&self.path[self.head..next_index], next_index));
+                    }
+                }
+
+                Some((tok, next_index))
+            }
+            // default case just let it fall through
+            _ => Some((tok, next_index)),
+        }
+    }
+
+    // next returns the next token without moving the head forward. Tokens viewed
+    // this way will not show up in consumed until token is called. This internal
+    // function does not stitch tokens together like >=. Use peak instead. This function
+    // also assumes there is no whitespace at the head specified
+    fn next(&mut self, head: usize) -> Option<(&'a str, usize)> {
+        let c = self.path[head..].char_indices();
         let mut tok: Option<&str> = None;
-        let mut next_index = self.head;
+        let mut next_index = head;
         let mut escape_next = false;
 
         let escape_all = match self.escape_token {
@@ -102,7 +115,7 @@ impl<'a> Lexer<'a> {
                     // existing token
                     if escape_next || escape_all {
                         next_index += char.len_utf8();
-                        tok = Some(&self.path[self.head..next_index]);
+                        tok = Some(&self.path[head..next_index]);
                         escape_next = false;
                         continue 'charloop;
                     }
@@ -117,13 +130,13 @@ impl<'a> Lexer<'a> {
 
                     // otherwise we are starting with a token, so lets return that
                     next_index += char.len_utf8();
-                    tok = Some(&self.path[self.head..next_index]);
+                    tok = Some(&self.path[head..next_index]);
                     break 'charloop;
                 }
                 // Drives escaping logic, this will escape the next character
                 TOKEN_ESCAPE => {
                     // collect the escapes so we can return something if the input is "\\\\\\\"
-                    tok = Some(&self.path[self.head..next_index]);
+                    tok = Some(&self.path[head..next_index]);
                     escape_next = true;
                 }
                 // If something wraps something, and you want to escape everything inside
@@ -154,7 +167,7 @@ impl<'a> Lexer<'a> {
                     // return the wrapping token as it's own token.
                     if let None = tok {
                         next_index += char.len_utf8();
-                        tok = Some(&self.path[self.head..next_index]);
+                        tok = Some(&self.path[head..next_index]);
 
                         // toggle escaping when we encounter an escape token
                         match self.escape_token {
@@ -168,7 +181,7 @@ impl<'a> Lexer<'a> {
                     if let Some(_) = self.escape_token {
                         // after we turn it off collect the token, without
                         // grabbing the ending "
-                        tok = Some(&self.path[self.head..next_index]);
+                        tok = Some(&self.path[head..next_index]);
                         break 'charloop;
                     }
 
@@ -182,7 +195,7 @@ impl<'a> Lexer<'a> {
                 _ => {
                     escape_next = false;
                     next_index += char.len_utf8();
-                    tok = Some(&self.path[self.head..next_index]);
+                    tok = Some(&self.path[head..next_index]);
                 }
             }
         }

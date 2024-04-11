@@ -27,12 +27,12 @@ impl<'a> Parser<'a> {
     //     }
     // }
 
-    pub fn parse_select(&mut self) -> Option<()> {
-        let tok = self.lex.token()?;
+    // pub fn parse_select(&mut self) -> Option<()> {
+    //     let tok = self.lex.token()?;
 
-        match tok {
-            SELECT => todo!(),
-            _ => None,
-        }
-    }
+    //     match tok {
+    //         SELECT => todo!(),
+    //         _ => None,
+    //     }
+    // }
 }
