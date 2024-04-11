@@ -25,20 +25,6 @@ impl<'a> From<&'a str> for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    // whitespace_offset will return the number of bytes from
-    // the header that are whitespace.
-    fn consume_whitespace(&mut self) {
-        let c = self.path[self.head..].chars();
-
-        for char in c {
-            if !char.is_whitespace() {
-                break;
-            }
-
-            self.head += char.len_utf8();
-        }
-    }
-
     // consumed returns the content which has already been tokenized
     // this is useful for creating error messages that point to where we
     // last were. This will not show the any peak tokens.
@@ -50,12 +36,20 @@ impl<'a> Lexer<'a> {
     // it returns None. All tokens returns are references to the original string
     // meaning all escape characters are still present.
     pub fn token(&mut self) -> Option<&'a str> {
-        let (tok, next_index) = self.peak()?;
+        let (tok, next_index) = self.full_next()?;
         self.head = next_index;
         Some(tok)
     }
 
-    pub fn peak(&mut self) -> Option<(&'a str, usize)> {
+    // peak returns the next token without moving the head forward
+    pub fn peak(&mut self) -> Option<&'a str> {
+        let (tok, _) = self.full_next()?;
+        Some(tok)
+    }
+
+    // full_nest returns the next token, and stiches together tokens like >=
+    //
+    fn full_next(&mut self) -> Option<(&'a str, usize)> {
         if self.head >= self.path.len() {
             return None;
         }
@@ -72,11 +66,25 @@ impl<'a> Lexer<'a> {
                         return Some((&self.path[self.head..next_index], next_index));
                     }
                 }
-
-                Some((tok, next_index))
             }
             // default case just let it fall through
-            _ => Some((tok, next_index)),
+            _ => {}
+        }
+
+        Some((tok, next_index))
+    }
+
+    // whitespace_offset will return the number of bytes from
+    // the header that are whitespace.
+    fn consume_whitespace(&mut self) {
+        let c = self.path[self.head..].chars();
+
+        for char in c {
+            if !char.is_whitespace() {
+                break;
+            }
+
+            self.head += char.len_utf8();
         }
     }
 
