@@ -13,7 +13,8 @@ const GROUP: &str = "GROUP";
 const SUB_CONDITION: &str = "(";
 const SUB_CONDITION_END: &str = ")";
 const EQUAL: &str = "=";
-const NEGATE: &str = "!";
+const EQUAL_DOUBLE: &str = "==";
+const NOT_EQUAL: &str = "!=";
 const AND: &str = "AND";
 const OR: &str = "OR";
 const KEY_WRAP: &str = "\"";
@@ -176,9 +177,33 @@ impl<'a> Parser<'a> {
 
         let tok = self.lex.token().unwrap();
         match tok {
-            EQUAL => {
-                let right = self.parse_expression()?;
+            EQUAL | EQUAL_DOUBLE => {
+                let right = match self.parse_expression() {
+                    Err(Error::UnexpectedEOF(_)) => {
+                        return Err(Error::with_history(
+                            "equals expects expressions on both sides",
+                            &self.lex,
+                        ))
+                    }
+                    Err(e) => return Err(e),
+                    Ok(r) => r,
+                };
+
                 Ok(Box::new(EqualsCondition { left, right }))
+            }
+            NOT_EQUAL => {
+                let right = match self.parse_expression() {
+                    Err(Error::UnexpectedEOF(_)) => {
+                        return Err(Error::with_history(
+                            "equals expects expressions on both sides",
+                            &self.lex,
+                        ))
+                    }
+                    Err(e) => return Err(e),
+                    Ok(r) => r,
+                };
+
+                Ok(Box::new(NotEqualsCondition { left, right }))
             }
             _ => Err(Error::with_history(
                 "expected comparison operator, AND or OR",
@@ -238,6 +263,20 @@ impl Condition for EqualsCondition {
     fn evaluate(&self, d: &Dapt) -> bool {
         match (self.left.evaluate(d), self.right.evaluate(d)) {
             (Some(l), Some(r)) => l == r,
+            _ => false,
+        }
+    }
+}
+
+struct NotEqualsCondition {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl Condition for NotEqualsCondition {
+    fn evaluate(&self, d: &Dapt) -> bool {
+        match (self.left.evaluate(d), self.right.evaluate(d)) {
+            (Some(l), Some(r)) => l != r,
             _ => false,
         }
     }
