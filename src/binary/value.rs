@@ -322,6 +322,7 @@ impl_number_into!(isize);
 impl_number_into!(f32);
 impl_number_into!(f64);
 
+#[derive(Debug)]
 pub enum Any<'a> {
     USize(usize),
     U8(u8),
@@ -427,5 +428,157 @@ impl TryFrom<Any<'_>> for Number {
                 "Could not convert into number".into(),
             )),
         }
+    }
+}
+
+macro_rules! number_eq_arm {
+    ($type:ty, $a:ident, $other:ident) => {{
+        match <$type>::MAX.try_into() {
+            Ok(max) => {
+                if *$a > max {
+                    return false;
+                }
+            }
+            Err(_) => return false,
+        }
+
+        *$a == *$other as $type
+    }};
+}
+
+macro_rules! impl_partial_eq_number {
+    ($type:ty) => {
+        impl PartialEq<$type> for Any<'_> {
+            fn eq(&self, other: &$type) -> bool {
+                match self {
+                    Any::U8(a) => number_eq_arm!(u8, a, other),
+                    Any::U16(a) => number_eq_arm!(u16, a, other),
+                    Any::U32(a) => number_eq_arm!(u32, a, other),
+                    Any::U64(a) => number_eq_arm!(u64, a, other),
+                    Any::U128(a) => number_eq_arm!(u128, a, other),
+                    Any::USize(a) => number_eq_arm!(usize, a, other),
+                    Any::I8(a) => number_eq_arm!(i8, a, other),
+                    Any::I16(a) => number_eq_arm!(i16, a, other),
+                    Any::I32(a) => number_eq_arm!(i32, a, other),
+                    Any::I64(a) => number_eq_arm!(i64, a, other),
+                    Any::I128(a) => number_eq_arm!(i128, a, other),
+                    Any::ISize(a) => number_eq_arm!(isize, a, other),
+                    Any::F32(a) => number_eq_arm!(f32, a, other),
+                    Any::F64(a) => number_eq_arm!(f64, a, other),
+                    Any::Str(a) => match a.parse::<$type>() {
+                        Ok(val) => val == *other,
+                        Err(_) => false,
+                    },
+                    _ => false,
+                }
+            }
+        }
+    };
+}
+
+impl_partial_eq_number!(u8);
+impl_partial_eq_number!(u16);
+impl_partial_eq_number!(u32);
+impl_partial_eq_number!(u64);
+impl_partial_eq_number!(u128);
+impl_partial_eq_number!(usize);
+impl_partial_eq_number!(i8);
+impl_partial_eq_number!(i16);
+impl_partial_eq_number!(i32);
+impl_partial_eq_number!(i64);
+impl_partial_eq_number!(i128);
+impl_partial_eq_number!(isize);
+impl_partial_eq_number!(f32);
+impl_partial_eq_number!(f64);
+
+impl PartialEq<&str> for Any<'_> {
+    fn eq(&self, other: &&str) -> bool {
+        match self {
+            Any::U8(a) => a.to_string() == *other,
+            Any::U16(a) => a.to_string() == *other,
+            Any::U32(a) => a.to_string() == *other,
+            Any::U64(a) => a.to_string() == *other,
+            Any::U128(a) => a.to_string() == *other,
+            Any::I8(a) => a.to_string() == *other,
+            Any::I16(a) => a.to_string() == *other,
+            Any::I32(a) => a.to_string() == *other,
+            Any::I64(a) => a.to_string() == *other,
+            Any::I128(a) => a.to_string() == *other,
+            Any::F32(a) => a.to_string() == *other,
+            Any::F64(a) => a.to_string() == *other,
+            Any::Char(a) => a.to_string() == *other,
+            Any::Bool(a) => a.to_string().to_lowercase() == other.to_lowercase(),
+            Any::Str(a) => a == other,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<&[u8]> for Any<'_> {
+    fn eq(&self, other: &&[u8]) -> bool {
+        match self {
+            Any::Bytes(a) => a == other,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<char> for Any<'_> {
+    fn eq(&self, other: &char) -> bool {
+        match self {
+            Any::Char(a) => a == other,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<bool> for Any<'_> {
+    fn eq(&self, other: &bool) -> bool {
+        match self {
+            Any::Bool(a) => a == other,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq for Any<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Any::U8(a) => other == a,
+            Any::U16(a) => other == a,
+            Any::U32(a) => other == a,
+            Any::U64(a) => other == a,
+            Any::U128(a) => other == a,
+            Any::USize(a) => other == a,
+            Any::I8(a) => other == a,
+            Any::I16(a) => other == a,
+            Any::I32(a) => other == a,
+            Any::I64(a) => other == a,
+            Any::I128(a) => other == a,
+            Any::ISize(a) => other == a,
+            Any::F32(a) => other == a,
+            Any::F64(a) => other == a,
+            Any::Str(a) => other == a,
+            Any::Bytes(a) => other == a,
+            Any::Char(a) => other == a,
+            Any::Bool(a) => other == a,
+            Any::Null => match other {
+                Any::Null => true,
+                _ => false,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_any() {
+        assert!(Any::U8(1) == Any::U8(1));
+        assert!(Any::Str("1") == Any::U8(1));
+        assert!(Any::I16(100) == Any::Str("100"));
+        assert!(Any::I64(100) == Any::F64(100.0));
     }
 }
