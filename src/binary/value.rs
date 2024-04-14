@@ -7,7 +7,9 @@ use crate::{
 
 use base64::{engine::general_purpose::STANDARD_NO_PAD as Base64Encoder, Engine as _};
 
-use super::{BArray, BKeyValue, BMap, TYPE_ARRAY, TYPE_MAP};
+use super::{
+    BArray, BKeyValue, BMap, BReference, BToken, MAX_REFERENCE_DEPTH, TYPE_ARRAY, TYPE_MAP,
+};
 
 // Serialize is used to
 pub trait Serialize {
@@ -262,24 +264,30 @@ pub enum Number {
 }
 
 impl Number {
-    pub fn new(b: &Binary, index: usize) -> DaptResult<Number> {
-        let tpe = b.type_at(index).unwrap();
-        match tpe {
-            TYPE_U8 => Ok(Number::U8(b.get::<u8>(index).unwrap())),
-            TYPE_U16 => Ok(Number::U16(b.get::<u16>(index).unwrap())),
-            TYPE_U32 => Ok(Number::U32(b.get::<u32>(index).unwrap())),
-            TYPE_U64 => Ok(Number::U64(b.get::<u64>(index).unwrap())),
-            TYPE_U128 => Ok(Number::U128(b.get::<u128>(index).unwrap())),
-            TYPE_USIZE => Ok(Number::USize(b.get::<usize>(index).unwrap())),
-            TYPE_I8 => Ok(Number::I8(b.get::<i8>(index).unwrap())),
-            TYPE_I16 => Ok(Number::I16(b.get::<i16>(index).unwrap())),
-            TYPE_I32 => Ok(Number::I32(b.get::<i32>(index).unwrap())),
-            TYPE_I64 => Ok(Number::I64(b.get::<i64>(index).unwrap())),
-            TYPE_I128 => Ok(Number::I128(b.get::<i128>(index).unwrap())),
-            TYPE_ISIZE => Ok(Number::ISize(b.get::<isize>(index).unwrap())),
-            TYPE_F32 => Ok(Number::F32(b.get::<f32>(index).unwrap())),
-            TYPE_F64 => Ok(Number::F64(b.get::<f64>(index).unwrap())),
-            _ => Err(Error::TypeMismatch(tpe, "expected number type".into())),
+    pub fn new(b: &Binary, token: BToken) -> DaptResult<Number> {
+        match token.get_type(b) {
+            TYPE_U8 => Ok(Number::U8(b.get::<u8>(token.get_reference(b)).unwrap())),
+            TYPE_U16 => Ok(Number::U16(b.get::<u16>(token.get_reference(b)).unwrap())),
+            TYPE_U32 => Ok(Number::U32(b.get::<u32>(token.get_reference(b)).unwrap())),
+            TYPE_U64 => Ok(Number::U64(b.get::<u64>(token.get_reference(b)).unwrap())),
+            TYPE_U128 => Ok(Number::U128(b.get::<u128>(token.get_reference(b)).unwrap())),
+            TYPE_USIZE => Ok(Number::USize(
+                b.get::<usize>(token.get_reference(b)).unwrap(),
+            )),
+            TYPE_I8 => Ok(Number::I8(b.get::<i8>(token.get_reference(b)).unwrap())),
+            TYPE_I16 => Ok(Number::I16(b.get::<i16>(token.get_reference(b)).unwrap())),
+            TYPE_I32 => Ok(Number::I32(b.get::<i32>(token.get_reference(b)).unwrap())),
+            TYPE_I64 => Ok(Number::I64(b.get::<i64>(token.get_reference(b)).unwrap())),
+            TYPE_I128 => Ok(Number::I128(b.get::<i128>(token.get_reference(b)).unwrap())),
+            TYPE_ISIZE => Ok(Number::ISize(
+                b.get::<isize>(token.get_reference(b)).unwrap(),
+            )),
+            TYPE_F32 => Ok(Number::F32(b.get::<f32>(token.get_reference(b)).unwrap())),
+            TYPE_F64 => Ok(Number::F64(b.get::<f64>(token.get_reference(b)).unwrap())),
+            _ => Err(Error::TypeMismatch(
+                token.get_type(b),
+                "expected number type".into(),
+            )),
         }
     }
 }
@@ -350,43 +358,44 @@ pub enum Any<'a> {
 }
 
 impl<'a> Any<'a> {
-    pub fn new(b: &'a Binary, index: usize) -> Option<Any<'a>> {
-        let tpe = b.type_at(index)?;
-        match tpe {
-            TYPE_U8 => Some(Any::U8(b.get::<u8>(index).unwrap())),
-            TYPE_U16 => Some(Any::U16(b.get::<u16>(index).unwrap())),
-            TYPE_U32 => Some(Any::U32(b.get::<u32>(index).unwrap())),
-            TYPE_U64 => Some(Any::U64(b.get::<u64>(index).unwrap())),
-            TYPE_U128 => Some(Any::U128(b.get::<u128>(index).unwrap())),
-            TYPE_USIZE => Some(Any::USize(b.get::<usize>(index).unwrap())),
-            TYPE_I8 => Some(Any::I8(b.get::<i8>(index).unwrap())),
-            TYPE_I16 => Some(Any::I16(b.get::<i16>(index).unwrap())),
-            TYPE_I32 => Some(Any::I32(b.get::<i32>(index).unwrap())),
-            TYPE_I64 => Some(Any::I64(b.get::<i64>(index).unwrap())),
-            TYPE_I128 => Some(Any::I128(b.get::<i128>(index).unwrap())),
-            TYPE_ISIZE => Some(Any::ISize(b.get::<isize>(index).unwrap())),
-            TYPE_F32 => Some(Any::F32(b.get::<f32>(index).unwrap())),
-            TYPE_F64 => Some(Any::F64(b.get::<f64>(index).unwrap())),
-            TYPE_STR => Some(Any::Str(b.get::<&'a str>(index).unwrap())),
-            TYPE_BYTES => Some(Any::Bytes(b.get::<&'a [u8]>(index).unwrap())),
-            TYPE_CHAR => Some(Any::Char(b.get::<char>(index).unwrap())),
-            TYPE_BOOL => Some(Any::Bool(b.get::<bool>(index).unwrap())),
+    pub fn new(b: &'a Binary, token: BToken) -> Option<Any<'a>> {
+        match token.get_type(b) {
+            TYPE_U8 => Some(Any::U8(b.get::<u8>(token.get_reference(b)).unwrap())),
+            TYPE_U16 => Some(Any::U16(b.get::<u16>(token.get_reference(b)).unwrap())),
+            TYPE_U32 => Some(Any::U32(b.get::<u32>(token.get_reference(b)).unwrap())),
+            TYPE_U64 => Some(Any::U64(b.get::<u64>(token.get_reference(b)).unwrap())),
+            TYPE_U128 => Some(Any::U128(b.get::<u128>(token.get_reference(b)).unwrap())),
+            TYPE_USIZE => Some(Any::USize(b.get::<usize>(token.get_reference(b)).unwrap())),
+            TYPE_I8 => Some(Any::I8(b.get::<i8>(token.get_reference(b)).unwrap())),
+            TYPE_I16 => Some(Any::I16(b.get::<i16>(token.get_reference(b)).unwrap())),
+            TYPE_I32 => Some(Any::I32(b.get::<i32>(token.get_reference(b)).unwrap())),
+            TYPE_I64 => Some(Any::I64(b.get::<i64>(token.get_reference(b)).unwrap())),
+            TYPE_I128 => Some(Any::I128(b.get::<i128>(token.get_reference(b)).unwrap())),
+            TYPE_ISIZE => Some(Any::ISize(b.get::<isize>(token.get_reference(b)).unwrap())),
+            TYPE_F32 => Some(Any::F32(b.get::<f32>(token.get_reference(b)).unwrap())),
+            TYPE_F64 => Some(Any::F64(b.get::<f64>(token.get_reference(b)).unwrap())),
+            TYPE_STR => Some(Any::Str(b.get::<&'a str>(token.get_reference(b)).unwrap())),
+            TYPE_BYTES => Some(Any::Bytes(
+                b.get::<&'a [u8]>(token.get_reference(b)).unwrap(),
+            )),
+            TYPE_CHAR => Some(Any::Char(b.get::<char>(token.get_reference(b)).unwrap())),
+            TYPE_BOOL => Some(Any::Bool(b.get::<bool>(token.get_reference(b)).unwrap())),
             TYPE_ARRAY => {
-                let arr = BArray::try_from(b.token_at(index).unwrap()).unwrap();
-                let mut items = Vec::with_capacity(arr.length());
-                for i in 0..arr.length() - 1 {
-                    items.push(Any::new(b, arr.child_index(i).unwrap()).unwrap());
+                let arr = BArray::from(token);
+                let mut items = Vec::with_capacity(arr.length(b));
+                for i in 0..arr.length(b) - 1 {
+                    let val_tok = arr.child_index(b, i).unwrap().val_at(b).unwrap();
+                    items.push(Any::new(b, val_tok).unwrap());
                 }
                 Some(Any::Array(items))
             }
             TYPE_MAP => {
-                let map = BMap::try_from(b.token_at(index).unwrap()).unwrap();
-                let mut items = HashMap::with_capacity(map.length());
-                for i in 0..map.length() - 1 {
-                    items.insert(
-                        b.get_key(map.child_index(i).unwrap()).unwrap(),
-                        Any::new(b, map.child_index(i + 1).unwrap()).unwrap(),
-                    );
+                let map = BMap::from(token);
+                let mut items = HashMap::with_capacity(map.length(b));
+                for i in 0..map.length(b) - 1 {
+                    let key_tok = map.child_index(b, i).unwrap().key_at(b).unwrap();
+                    let val_tok = key_tok.child(b).val_at(b).unwrap();
+                    items.insert(key_tok.key(b), Any::new(b, val_tok).unwrap());
                 }
                 Some(Any::Map(items))
             }

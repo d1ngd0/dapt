@@ -24,9 +24,9 @@ fn test_deserialize() {
     // value testing
     let d: Dapt = serde_json::from_str(data).unwrap();
     assert_eq!(d.get("d.f").unwrap().str(), Some("world"));
-    assert_eq!(d.get("a").unwrap().val::<usize>(), Some(1));
+    assert_eq!(d.get("a").unwrap().val::<u64>(), Some(1));
     assert_eq!(d.get("b").unwrap().str(), Some("hello"));
-    assert_eq!(d.get("d.e").unwrap().val::<usize>(), Some(1000));
+    assert_eq!(d.get("d.e").unwrap().val::<u64>(), Some(1000));
     assert_eq!(d.get("~.deepest").unwrap().str(), Some("hello"));
 
     // field literal tests
@@ -113,6 +113,5 @@ fn test_path() {
     test_path!("a[1].~.b");
 
     let p = Path::try_from("a.{invalid|path}");
-    println!("{:?}", p);
     assert!(p.is_err());
 }

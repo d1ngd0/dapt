@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use arrayvec::ArrayVec;
-use binary::{Binary, BinaryVisitor, SerializeBookmark};
-use bookmark::{Ptrs, MAX_POINTERS};
+use binary::BReference;
+use binary::{Binary, BinaryVisitor, SerializeBReference};
 use path::parser::Node;
 use serde::ser::SerializeSeq;
 use serde::Deserializer;
 
 mod binary;
-mod bookmark;
 mod error;
 mod path;
 mod query;
@@ -18,6 +17,10 @@ pub use binary::Deserialize;
 pub use binary::Number;
 pub use error::Error;
 pub use path::parser::Path;
+
+pub const MAX_POINTERS: usize = 128;
+
+pub type Ptrs = ArrayVec<BReference, MAX_POINTERS>;
 
 #[derive(Debug)]
 pub struct Dapt {
@@ -36,7 +39,7 @@ impl Default for Dapt {
             b: Arc::new(Binary::default()),
         };
 
-        d.ptrs.push(0.into());
+        d.ptrs.push(BReference::from(0));
         d
     }
 }
@@ -76,11 +79,11 @@ impl serde::ser::Serialize for Dapt {
     {
         match self.ptrs.len() {
             0 => serializer.serialize_none(),
-            1 => SerializeBookmark::new(self.ptrs[0], &self.b).serialize(serializer),
+            1 => SerializeBReference::new(self.ptrs[0], &self.b).serialize(serializer),
             _ => {
                 let mut seq = serializer.serialize_seq(Some(self.ptrs.len()))?;
                 for ptr in self.ptrs.iter() {
-                    seq.serialize_element(&SerializeBookmark::new(*ptr, &self.b))?;
+                    seq.serialize_element(&SerializeBReference::new(*ptr, &self.b))?;
                 }
                 seq.end()
             }
@@ -118,7 +121,7 @@ impl Dapt {
             return None;
         }
 
-        self.b.get::<T>(self.ptrs[0].index())
+        self.b.get::<T>(self.ptrs[0])
     }
 
     // if you know the value is a string, you can grab it here without
@@ -129,7 +132,7 @@ impl Dapt {
             return None;
         }
 
-        self.b.str(self.ptrs[0].index())
+        self.b.str(self.ptrs[0])
     }
 
     pub fn number(&self) -> Option<Number> {
@@ -137,17 +140,17 @@ impl Dapt {
             return None;
         }
 
-        self.b.number(self.ptrs[0].index()).ok()
+        self.b.number(self.ptrs[0]).ok()
     }
 
     pub fn any(&self) -> Option<Any<'_>> {
         match self.ptrs.len() {
             0 => None,
-            1 => self.b.any(self.ptrs[0].index()),
+            1 => self.b.any(self.ptrs[0]),
             _ => {
                 let mut any = Vec::with_capacity(self.ptrs.len());
                 for ptr in self.ptrs.iter() {
-                    let val = match self.b.any(ptr.index()) {
+                    let val = match self.b.any(*ptr) {
                         Some(val) => val,
                         None => continue,
                     };

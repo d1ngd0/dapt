@@ -1,17 +1,15 @@
 use arrayvec::ArrayVec;
 use std::fmt;
 
-use crate::binary::{BArray, BKeyValue, BMap, Binary, TYPE_ARRAY, TYPE_MAP};
-use crate::bookmark::Bookmark;
-use crate::bookmark::MAX_POINTERS;
-use crate::Ptrs;
+use crate::binary::{BArray, BKeyValue, BMap, BReference, Binary, TYPE_ARRAY, TYPE_MAP};
+use crate::{Ptrs, MAX_POINTERS};
 
 use super::parser::Node;
 
 // Node is the type that a parser puts out. each
 // node should implement the trait functions below
 pub trait Discoverable {
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs>;
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -40,14 +38,14 @@ impl FieldLiteral {
 impl Discoverable for FieldLiteral {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
-        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
+        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
 
-        let n = b.value_node(bin)?;
+        let n = b.val_at(bin)?;
 
-        match n.type_of(bin)? {
+        match n.get_type(bin) {
             TYPE_MAP => {
-                let bcoll: BMap = n.token_at(bin)?.try_into().unwrap();
+                let bcoll = BMap::from(n);
                 if let Some(child_location) = bcoll.child_key(&self.name, bin) {
                     res.push(child_location.into());
                 }
@@ -95,22 +93,22 @@ impl Array {
 impl Discoverable for Array {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
-        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
+        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
 
-        let n = b.value_node(bin)?;
+        let n = b.val_at(bin)?;
 
-        match n.type_of(bin)? {
+        match n.get_type(bin) {
             TYPE_ARRAY => {
-                let bcoll: BArray = n.token_at(bin)?.try_into().unwrap();
+                let bcoll = BArray::from(n);
                 if let None = self.index {
                     unsafe {
-                        res.set_len(bcoll.length()); // set the length to hold the
-                                                     // indexes
-                        bcoll.child_indexes(&mut res) // add the indexes
+                        res.set_len(bcoll.length(bin)); // set the length to hold the
+                                                        // indexes
+                        bcoll.child_indexes(bin, &mut res) // add the indexes
                     }
                 } else {
-                    if let Some(child_location) = bcoll.child_index(self.index.unwrap()) {
+                    if let Some(child_location) = bcoll.child_index(bin, self.index.unwrap()) {
                         res.push(child_location.into());
                     }
                 }
@@ -143,18 +141,17 @@ pub struct Wildcard;
 impl Discoverable for Wildcard {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
-        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
+        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
 
-        let n = b.value_node(bin)?;
+        let n = b.val_at(bin)?;
 
-        match n.type_of(bin)? {
+        match n.get_type(bin) {
             TYPE_MAP => {
-                let bcoll: BMap = n.token_at(bin)?.try_into().unwrap();
+                let bcoll = BMap::from(n);
                 unsafe {
-                    res.set_len(bcoll.length()); // set the length to hold the
-                                                 // indexes
-                    bcoll.child_indexes(&mut res) // add the indexes
+                    res.set_len(bcoll.length(bin)); // set the length to hold the indexes
+                    bcoll.child_indexes(bin, &mut res) // add the indexes
                 }
             }
             _ => (),
@@ -193,8 +190,8 @@ impl Recursive {
 impl Discoverable for Recursive {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
-        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
+        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
         b.walk(bin, &mut res, &|childb, res| {
             if let Some(ptrs) = self.child.find(bin, childb) {
                 res.try_extend_from_slice(&ptrs[..]).unwrap();
@@ -234,8 +231,8 @@ impl First {
 impl Discoverable for First {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
-        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
+        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
 
         for path in &self.paths {
             if let Some(ptrs) = path.find(bin, b) {
@@ -286,8 +283,8 @@ impl Multi {
 impl Discoverable for Multi {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
-        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
+        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
 
         for path in &self.paths {
             if let Some(ptrs) = path.find(bin, b) {
@@ -343,26 +340,19 @@ impl PartialEq for Regexp {
 impl Discoverable for Regexp {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
-        let mut res: ArrayVec<Bookmark, MAX_POINTERS> = ArrayVec::new();
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
+        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
 
-        let n = b.value_node(bin)?;
-        match n.type_of(bin)? {
+        let n = b.val_at(bin)?;
+        match n.get_type(bin) {
             TYPE_MAP => {
-                let bcoll: BMap = n.token_at(bin)?.try_into().unwrap();
-                let mut indexes = vec![Bookmark::new(0); bcoll.length()];
-                bcoll.child_indexes(&mut indexes);
+                let bcoll = BMap::from(n);
+                let mut indexes = vec![BReference::from(0); bcoll.length(bin)];
+                bcoll.child_indexes(bin, &mut indexes);
 
-                println!("{:?}", indexes);
                 for i in indexes {
-                    let child = match bin.token_at(i.into()) {
-                        Some(c) => c,
-                        None => continue,
-                    };
-
-                    let child = BKeyValue::try_from(child).unwrap();
-
-                    if self.name.is_match(child.key()) {
+                    let child = i.key_at(bin).unwrap();
+                    if self.name.is_match(child.key(bin)) {
                         res.push(i.into());
                     }
                 }
