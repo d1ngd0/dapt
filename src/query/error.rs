@@ -1,3 +1,5 @@
+use crate::path::parser::ParseError;
+
 use super::lexor::Lexer;
 
 pub type QueryResult<T> = Result<T, Error>;
@@ -15,5 +17,11 @@ impl Error {
 
     pub fn unexpected_eof(lex: &Lexer) -> Self {
         Error::UnexpectedEOF(format!("unexpected EOF at: {}", lex.consumed()))
+    }
+}
+
+impl From<ParseError> for Error {
+    fn from(e: ParseError) -> Self {
+        Error::InvalidQuery(format!("Key Parsing error: {}", e.to_string()))
     }
 }

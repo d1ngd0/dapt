@@ -165,9 +165,22 @@ impl Binary {
                 let key_value: BKeyValue = token.try_into().ok()?;
                 self.val_at(key_value.child_index() as usize)
             }
-            TYPE_MAP => None,
-            TYPE_ARRAY => None,
             _ => Some(index),
+        }
+    }
+
+    pub fn key_at(&self, index: usize) -> Option<usize> {
+        let index = self.resolve(index, MAX_REFERENCE_DEPTH)?;
+        let token = self.token_at(index).unwrap();
+
+        match token.get_type() {
+            TYPE_KEYVAL => Some(index),
+            // work our way up the tree until we find a key value...
+            // TODO: think about this more... is this what we actually want
+            // to do. In the array case we end up going up until we hit an
+            // object. Something like [1,2,3,4] would never be able to generate
+            // a key... maybe this is ol
+            _ => self.key_at(self.token_at(index).unwrap().get_parent_index()? as usize),
         }
     }
 
@@ -186,6 +199,19 @@ impl Binary {
         let (s, e) = self.token_bounds(index).unwrap();
         let buf = self.0.get(s..e).unwrap();
         Some(T::deserialize(buf.get(CONTENT_OFFSET..).unwrap()))
+    }
+
+    pub fn get_key<'a>(&'a self, index: usize) -> Option<&'a str> {
+        // again here the borrow checker doesn't understand that things
+        // are safe... one day, there will be a rust that trusts and
+        // understands the lifetimes of things, that ties it back to
+        // the original object. but it is not this day.
+        let index = self.key_at(index)?;
+        let (s, e) = self.token_bounds(index).unwrap();
+        let key_offset = s + CONTENT_OFFSET + mem::size_of::<u32>();
+        Some(<&'a str as Deserialize>::deserialize(
+            self.0.get(key_offset..e).expect("invalid sized keyvalue"),
+        ))
     }
 
     // if you know the value is a string you can get it without

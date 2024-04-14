@@ -140,12 +140,24 @@ impl Dapt {
         self.b.number(self.ptrs[0].index()).ok()
     }
 
-    pub fn any(&self) -> Option<Any> {
-        if self.ptrs.len() == 0 {
-            return None;
-        }
+    pub fn any(&self) -> Option<Any<'_>> {
+        match self.ptrs.len() {
+            0 => None,
+            1 => self.b.any(self.ptrs[0].index()),
+            _ => {
+                let mut any = Vec::with_capacity(self.ptrs.len());
+                for ptr in self.ptrs.iter() {
+                    let val = match self.b.any(ptr.index()) {
+                        Some(val) => val,
+                        None => continue,
+                    };
 
-        self.b.any(self.ptrs[0].index())
+                    any.push(val);
+                }
+
+                Some(Any::Array(any))
+            }
+        }
     }
 
     pub fn get(&self, path: &str) -> Result<Dapt, error::Error> {

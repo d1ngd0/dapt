@@ -1,4 +1,4 @@
-use crate::{Any, Dapt};
+use crate::{Any, Dapt, Path};
 
 use super::{
     error::{Error, QueryResult},
@@ -39,8 +39,11 @@ trait Condition {
     fn evaluate(&self, d: &Dapt) -> bool;
 }
 
+// Expression is a trait that takes in a dapt packet and returns an
+// optional value. This value can be Any type, which is what a dapt packet
+// can return.
 trait Expression {
-    fn evaluate(&self, d: &Dapt) -> Option<Any>;
+    fn evaluate<'a>(&self, d: &'a Dapt) -> Option<Any<'a>>;
 }
 
 // Conjunctions are used to combine conditions
@@ -218,7 +221,29 @@ impl<'a> Parser<'a> {
             .token()
             .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
 
-        todo!()
+        match left {
+            KEY_WRAP => {
+                let key = self
+                    .lex
+                    .token()
+                    .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+
+                let path = Path::try_from(key)
+                    .map_err(|e| Error::with_history(&e.to_string(), &self.lex))?;
+
+                // consume the final " token, and return. If we get a different token
+                // or hit EOF we can return an error
+                match self.lex.token() {
+                    Some(KEY_WRAP) => todo!(),
+                    Some(tok) => Err(Error::with_history(
+                        &format!("expected {KEY_WRAP} but got {tok}"),
+                        &self.lex,
+                    )),
+                    None => Err(Error::unexpected_eof(&self.lex)),
+                }
+            }
+            _ => Err(Error::with_history("expected key", &self.lex)),
+        }
     }
 
     // pub fn parse_query(&mut self) -> Option<Node> {
@@ -281,3 +306,15 @@ impl Condition for NotEqualsCondition {
         }
     }
 }
+
+// impl Expression for Path {
+//     fn evaluate<'a>(&self, d: &'a Dapt) -> Option<Any<'a>> {
+//         d.get_path(self).ok()?.any()
+//     }
+// }
+
+// impl Expression for Any<'_> {
+//     fn evaluate<'a>(&self, _: &'a Dapt) -> Option<Any<'a>> {
+//         Some(*self)
+//     }
+// }

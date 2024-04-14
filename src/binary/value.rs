@@ -1,4 +1,4 @@
-use std::mem;
+use std::{collections::HashMap, mem};
 
 use crate::{
     binary::Binary,
@@ -6,6 +6,8 @@ use crate::{
 };
 
 use base64::{engine::general_purpose::STANDARD_NO_PAD as Base64Encoder, Engine as _};
+
+use super::{BArray, BKeyValue, BMap, TYPE_ARRAY, TYPE_MAP};
 
 // Serialize is used to
 pub trait Serialize {
@@ -322,7 +324,7 @@ impl_number_into!(isize);
 impl_number_into!(f32);
 impl_number_into!(f64);
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub enum Any<'a> {
     USize(usize),
     U8(u8),
@@ -342,6 +344,8 @@ pub enum Any<'a> {
     Bytes(&'a [u8]),
     Char(char),
     Bool(bool),
+    Array(Vec<Any<'a>>),
+    Map(HashMap<&'a str, Any<'a>>),
     Null,
 }
 
@@ -367,6 +371,25 @@ impl<'a> Any<'a> {
             TYPE_BYTES => Some(Any::Bytes(b.get::<&'a [u8]>(index).unwrap())),
             TYPE_CHAR => Some(Any::Char(b.get::<char>(index).unwrap())),
             TYPE_BOOL => Some(Any::Bool(b.get::<bool>(index).unwrap())),
+            TYPE_ARRAY => {
+                let arr = BArray::try_from(b.token_at(index).unwrap()).unwrap();
+                let mut items = Vec::with_capacity(arr.length());
+                for i in 0..arr.length() - 1 {
+                    items.push(Any::new(b, arr.child_index(i).unwrap()).unwrap());
+                }
+                Some(Any::Array(items))
+            }
+            TYPE_MAP => {
+                let map = BMap::try_from(b.token_at(index).unwrap()).unwrap();
+                let mut items = HashMap::with_capacity(map.length());
+                for i in 0..map.length() - 1 {
+                    items.insert(
+                        b.get_key(map.child_index(i).unwrap()).unwrap(),
+                        Any::new(b, map.child_index(i + 1).unwrap()).unwrap(),
+                    );
+                }
+                Some(Any::Map(items))
+            }
             TYPE_NULL => Some(Any::Null),
             _ => None,
         }
@@ -394,6 +417,34 @@ impl From<Any<'_>> for String {
             Any::Bytes(val) => Base64Encoder.encode(val),
             Any::Char(val) => val.to_string(),
             Any::Bool(val) => val.to_string(),
+            Any::Array(val) => {
+                let mut result = String::new();
+                let mut first = true;
+                for item in val {
+                    if first {
+                        first = false;
+                    } else {
+                        result.push_str(", ");
+                    }
+
+                    result.push_str(&String::from(item));
+                }
+                result
+            }
+            Any::Map(val) => {
+                let mut result = String::new();
+                let mut first = true;
+                for (key, value) in val {
+                    if first {
+                        first = false;
+                    } else {
+                        result.push_str(", ");
+                    }
+
+                    result.push_str(&format!("{}: {}", key, String::from(value)));
+                }
+                result
+            }
             Any::Null => "<null>".to_string(),
         }
     }
@@ -541,6 +592,58 @@ impl PartialEq<bool> for Any<'_> {
     }
 }
 
+impl PartialEq<Vec<Any<'_>>> for Any<'_> {
+    fn eq(&self, other: &Vec<Any<'_>>) -> bool {
+        let a = match self {
+            Any::Array(a) => a,
+            _ => return false,
+        };
+
+        if a.len() != other.len() {
+            return false;
+        }
+
+        for item in a.iter() {
+            let mut found = false;
+            for other_item in other.iter() {
+                if item == other_item {
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+impl PartialEq<HashMap<&str, Any<'_>>> for Any<'_> {
+    fn eq(&self, other: &HashMap<&str, Any<'_>>) -> bool {
+        let a = match self {
+            Any::Map(a) => a,
+            _ => return false,
+        };
+
+        if a.len() != other.len() {
+            return false;
+        }
+
+        for (key, val) in a.iter() {
+            if let Some(other_val) = other.get(key) {
+                if val != other_val {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+}
+
 impl PartialEq for Any<'_> {
     fn eq(&self, other: &Self) -> bool {
         match self {
@@ -562,6 +665,10 @@ impl PartialEq for Any<'_> {
             Any::Bytes(a) => other == a,
             Any::Char(a) => other == a,
             Any::Bool(a) => other == a,
+            // Arrays are equal if they have the same contents
+            // they don't have to be in the same order
+            Any::Array(a) => other == a,
+            Any::Map(a) => other == a,
             Any::Null => match other {
                 Any::Null => true,
                 _ => false,
