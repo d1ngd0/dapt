@@ -107,7 +107,6 @@ impl<'a> Lexer<'a> {
         // do with next_index given your context.
         'charloop: for (i, char) in c {
             if !escape_all && char.is_whitespace() {
-                println!("{:?}", tok);
                 break 'charloop;
             }
 

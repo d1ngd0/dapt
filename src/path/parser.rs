@@ -3,8 +3,8 @@ use std::ops::Deref;
 
 use arrayvec::ArrayVec;
 
-use crate::binary::Binary;
-use crate::bookmark::{Bookmark, Ptrs};
+use crate::binary::{BReference, Binary};
+use crate::Ptrs;
 
 use super::lexer::Lexer;
 use super::node::{Array, Discoverable, FieldLiteral, First, Multi, Recursive, Regexp, Wildcard};
@@ -61,7 +61,7 @@ pub enum Node {
 }
 
 impl Node {
-    pub fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
+    pub fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
         match self {
             Node::FieldLiteral(fl) => fl.find(bin, b),
             Node::Array(ar) => ar.find(bin, b),
@@ -134,7 +134,7 @@ impl Default for Path {
 }
 
 impl Discoverable for Path {
-    fn find(&self, bin: &Binary, b: Bookmark) -> Option<Ptrs> {
+    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
         let mut ptrs = ArrayVec::new();
         ptrs.push(b);
 

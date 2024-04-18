@@ -8,12 +8,10 @@ use serde::{
     Deserializer,
 };
 
-use crate::bookmark::Bookmark;
-
 use super::{
-    BArray, BKeyValue, BMap, Binary, TYPE_ARRAY, TYPE_BOOL, TYPE_BYTES, TYPE_CHAR, TYPE_F32,
-    TYPE_F64, TYPE_I128, TYPE_I16, TYPE_I32, TYPE_I64, TYPE_I8, TYPE_KEYVAL, TYPE_MAP, TYPE_NULL,
-    TYPE_STR, TYPE_U128, TYPE_U16, TYPE_U32, TYPE_U64, TYPE_U8,
+    BArray, BKeyValue, BMap, BReference, Binary, TYPE_ARRAY, TYPE_BOOL, TYPE_BYTES, TYPE_CHAR,
+    TYPE_F32, TYPE_F64, TYPE_I128, TYPE_I16, TYPE_I32, TYPE_I64, TYPE_I8, TYPE_KEYVAL, TYPE_MAP,
+    TYPE_NULL, TYPE_STR, TYPE_U128, TYPE_U16, TYPE_U32, TYPE_U64, TYPE_U8,
 };
 
 pub struct BinaryVisitor {
@@ -58,7 +56,7 @@ macro_rules! impl_visit {
 // calling deserialize_any. This means everything should return a bookmark
 // instead of the underlying value.
 impl<'de> DeserializeSeed<'de> for &BinaryVisitor {
-    type Value = Bookmark;
+    type Value = BReference;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
@@ -111,7 +109,7 @@ impl<'de> DeserializeSeed<'de> for MapKeySeed {
 // visitor merge that with the final bookmark given for the outer most
 // object and chuck that into a dapt struct. Boom, deserialized.
 impl<'de> Visitor<'de> for &BinaryVisitor {
-    type Value = Bookmark;
+    type Value = BReference;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("data which could be turned into a dapt packet")
@@ -152,11 +150,12 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
         let mut ptrs = Vec::new();
 
         while let Some(v) = seq.next_element_seed(self)? {
-            ptrs.push(v.index() as u32);
+            ptrs.push(v);
         }
 
         let mut bin = self.bin.borrow_mut();
-        Ok(Bookmark::new(BArray::create(None, &ptrs[..], &mut bin)))
+        let (bref, array) = BArray::new(None, &ptrs[..], &mut bin);
+        Ok(BReference::from(bref))
     }
 
     fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -166,12 +165,13 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
         let mut ptrs = Vec::new();
 
         while let Some((k, v)) = map.next_entry_seed(MapKeySeed, self)? {
-            let ptr = BKeyValue::create(None, v.index() as u32, &k, &mut self.bin.borrow_mut());
-            ptrs.push(ptr as u32);
+            let (bref, bkeyVal) = BKeyValue::new(None, v, &k, &mut self.bin.borrow_mut());
+            ptrs.push(bref);
         }
 
         let mut bin = self.bin.borrow_mut();
-        Ok(Bookmark::new(BMap::create(None, &ptrs[..], &mut bin)))
+        let (bref, map) = BMap::new(None, &ptrs[..], &mut bin);
+        Ok(bref)
     }
 
     fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
@@ -192,83 +192,82 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
     }
 }
 
-pub struct SerializeBookmark<'a> {
-    bookmark: Bookmark,
+pub struct SerializeBReference<'a> {
+    bookmark: BReference,
     bin: &'a Arc<Binary>,
 }
 
-impl<'a> SerializeBookmark<'a> {
-    pub fn new(bookmark: Bookmark, bin: &'a Arc<Binary>) -> Self {
+impl<'a> SerializeBReference<'a> {
+    pub fn new(bookmark: BReference, bin: &'a Arc<Binary>) -> Self {
         Self { bookmark, bin }
     }
 }
 
-impl SerializeBookmark<'_> {
+impl SerializeBReference<'_> {
     // When calling this youd better be sure it is the right type
     // otherwise we panic
     pub fn get<'a, T: crate::binary::Deserialize<'a>>(&'a self) -> T::Item {
-        self.bin.get::<T>(self.bookmark.into()).unwrap()
+        self.bin.get::<T>(self.bookmark).unwrap()
     }
 }
 
-impl Serialize for SerializeBookmark<'_> {
+impl Serialize for SerializeBReference<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
     {
-        match self.bookmark.type_of(&self.bin) {
-            None => serializer.serialize_none(),
-            Some(TYPE_I8) => serializer.serialize_i8(self.get::<i8>()),
-            Some(TYPE_I16) => serializer.serialize_i16(self.get::<i16>()),
-            Some(TYPE_I32) => serializer.serialize_i32(self.get::<i32>()),
-            Some(TYPE_I64) => serializer.serialize_i64(self.get::<i64>()),
-            Some(TYPE_I128) => serializer.serialize_i128(self.get::<i128>()),
-            Some(TYPE_U8) => serializer.serialize_u8(self.get::<u8>()),
-            Some(TYPE_U16) => serializer.serialize_u16(self.get::<u16>()),
-            Some(TYPE_U32) => serializer.serialize_u32(self.get::<u32>()),
-            Some(TYPE_U64) => serializer.serialize_u64(self.get::<u64>()),
-            Some(TYPE_U128) => serializer.serialize_u128(self.get::<u128>()),
-            Some(TYPE_F32) => serializer.serialize_f32(self.get::<f32>()),
-            Some(TYPE_F64) => serializer.serialize_f64(self.get::<f64>()),
-            Some(TYPE_STR) => serializer.serialize_str(&self.get::<&str>()),
-            Some(TYPE_BYTES) => serializer.serialize_bytes(&self.get::<&[u8]>()),
-            Some(TYPE_CHAR) => serializer.serialize_char(self.get::<char>()),
-            Some(TYPE_BOOL) => serializer.serialize_bool(self.get::<bool>()),
-            Some(TYPE_NULL) => serializer.serialize_unit(),
-            Some(TYPE_ARRAY) => {
-                let c = self.bookmark.token_at(&self.bin).unwrap();
-                let c = BArray::try_from(c).unwrap();
+        let token = self.bookmark.val_at(&self.bin).unwrap();
+        match token.get_type(&self.bin) {
+            TYPE_I8 => serializer.serialize_i8(self.get::<i8>()),
+            TYPE_I16 => serializer.serialize_i16(self.get::<i16>()),
+            TYPE_I32 => serializer.serialize_i32(self.get::<i32>()),
+            TYPE_I64 => serializer.serialize_i64(self.get::<i64>()),
+            TYPE_I128 => serializer.serialize_i128(self.get::<i128>()),
+            TYPE_U8 => serializer.serialize_u8(self.get::<u8>()),
+            TYPE_U16 => serializer.serialize_u16(self.get::<u16>()),
+            TYPE_U32 => serializer.serialize_u32(self.get::<u32>()),
+            TYPE_U64 => serializer.serialize_u64(self.get::<u64>()),
+            TYPE_U128 => serializer.serialize_u128(self.get::<u128>()),
+            TYPE_F32 => serializer.serialize_f32(self.get::<f32>()),
+            TYPE_F64 => serializer.serialize_f64(self.get::<f64>()),
+            TYPE_STR => serializer.serialize_str(&self.get::<&str>()),
+            TYPE_BYTES => serializer.serialize_bytes(&self.get::<&[u8]>()),
+            TYPE_CHAR => serializer.serialize_char(self.get::<char>()),
+            TYPE_BOOL => serializer.serialize_bool(self.get::<bool>()),
+            TYPE_NULL => serializer.serialize_unit(),
+            TYPE_ARRAY => {
+                let c = BArray::from(self.bookmark.val_at(&self.bin).unwrap());
 
-                let mut seq = serializer.serialize_seq(Some(c.length() as usize))?;
-                for i in 0..c.length() {
-                    seq.serialize_element(&SerializeBookmark::new(
-                        c.child_index(i).unwrap().into(),
+                let mut seq = serializer.serialize_seq(Some(c.length(&self.bin) as usize))?;
+                for i in 0..c.length(&self.bin) {
+                    seq.serialize_element(&SerializeBReference::new(
+                        c.child_index(&self.bin, i).unwrap(),
                         self.bin,
                     ))?;
                 }
                 seq.end()
             }
-            Some(TYPE_MAP) => {
-                let c = self.bookmark.token_at(&self.bin).unwrap();
-                let c = BMap::try_from(c).unwrap();
+            TYPE_MAP => {
+                let c = BMap::from(self.bookmark.val_at(&self.bin).unwrap());
 
-                let mut map = serializer.serialize_map(Some(c.length() as usize))?;
-                for i in 0..c.length() {
-                    let kv = self.bin.token_at(c.child_index(i).unwrap()).unwrap();
-                    let kv = BKeyValue::try_from(kv).unwrap();
-                    let key = kv.key();
+                let mut map = serializer.serialize_map(Some(c.length(&self.bin) as usize))?;
+                for i in 0..c.length(&self.bin) {
+                    let kv = c
+                        .child_index(&self.bin, i)
+                        .unwrap()
+                        .key_at(&self.bin)
+                        .unwrap();
 
                     map.serialize_entry(
-                        &key,
-                        &SerializeBookmark::new(kv.child_index().into(), self.bin),
+                        &kv.key(&self.bin),
+                        &SerializeBReference::new(kv.child(&self.bin), self.bin),
                     )?;
                 }
                 map.end()
             }
-            Some(TYPE_KEYVAL) => {
-                let kv = self.bookmark.token_at(self.bin).unwrap();
-                let kv = BKeyValue::try_from(kv).unwrap();
-                SerializeBookmark::new(kv.child_index().into(), self.bin).serialize(serializer)
+            TYPE_KEYVAL => {
+                let kv = self.bookmark.key_at(self.bin).unwrap();
+                SerializeBReference::new(kv.child(&self.bin), self.bin).serialize(serializer)
             }
             _ => panic!("Unknown type"),
         }
