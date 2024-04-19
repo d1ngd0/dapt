@@ -23,73 +23,73 @@ fn test_deserialize() {
 
     // value testing
     let d: Dapt = serde_json::from_str(data).unwrap();
-    assert_eq!(d.get("d.f").unwrap().str(), Some("world"));
-    assert_eq!(d.get("a").unwrap().val::<u64>(), Some(1));
-    assert_eq!(d.get("b").unwrap().str(), Some("hello"));
-    assert_eq!(d.get("d.e").unwrap().val::<u64>(), Some(1000));
-    assert_eq!(d.get("~.deepest").unwrap().str(), Some("hello"));
+    assert_eq!(d.sub("d.f").unwrap().str(), Some("world"));
+    assert_eq!(d.sub("a").unwrap().val::<u64>(), Some(1));
+    assert_eq!(d.sub("b").unwrap().str(), Some("hello"));
+    assert_eq!(d.sub("d.e").unwrap().val::<u64>(), Some(1000));
+    assert_eq!(d.sub("~.deepest").unwrap().str(), Some("hello"));
 
     // field literal tests
     assert_eq!(
         r#"[1,2,3]"#,
-        serde_json::to_string(&d.get("c").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("c").unwrap()).unwrap()
     );
 
     // array index tests
-    assert_eq!("2", serde_json::to_string(&d.get("c[1]").unwrap()).unwrap());
+    assert_eq!("2", serde_json::to_string(&d.sub("c[1]").unwrap()).unwrap());
 
     // array test
     assert_eq!(
         "[1,2,3]",
-        serde_json::to_string(&d.get("c[]").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("c[]").unwrap()).unwrap()
     );
 
     // empty array test
     assert_eq!(
         "[]",
-        serde_json::to_string(&d.get("empty_array").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("empty_array").unwrap()).unwrap()
     );
 
     // empty object test
     assert_eq!(
         "{}",
-        serde_json::to_string(&d.get("empty_object").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("empty_object").unwrap()).unwrap()
     );
 
     // wildcard tests
     assert_eq!(
         "[1000,\"world\",{\"deeper\":{\"deepest\":\"hello\"}}]",
-        serde_json::to_string(&d.get("d.*").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("d.*").unwrap()).unwrap()
     );
 
     // recursive find tests
     assert_eq!(
         "{\"deepest\":\"hello\"}",
-        serde_json::to_string(&d.get("~.deeper").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("~.deeper").unwrap()).unwrap()
     );
 
     // first match test
     assert_eq!(
         "{\"deepest\":\"hello\"}",
-        serde_json::to_string(&d.get("{m,d.deep.deeper,a}").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("{m,d.deep.deeper,a}").unwrap()).unwrap()
     );
 
     // multiple matches test
     assert_eq!(
         "[{\"deepest\":\"hello\"},1]",
-        serde_json::to_string(&d.get("(m|d.deep.deeper|a)").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("(m|d.deep.deeper|a)").unwrap()).unwrap()
     );
 
     // regex match
     assert_eq!(
         "[[],{}]",
-        serde_json::to_string(&d.get("/empty.*/").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("/empty.*/").unwrap()).unwrap()
     );
 
     // recursive regex
     assert_eq!(
         "[{\"deeper\":{\"deepest\":\"hello\"}},{\"deepest\":\"hello\"},\"hello\"]",
-        serde_json::to_string(&d.get("~./deep.*/").unwrap()).unwrap()
+        serde_json::to_string(&d.sub("~./deep.*/").unwrap()).unwrap()
     );
 }
 

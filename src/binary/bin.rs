@@ -231,9 +231,9 @@ impl BReference {
         }
     }
 
-    pub fn walk<'a, F, T>(&self, bin: &'a Binary, ob: &mut T, f: &F) -> bool
+    pub fn walk<'a, F>(&self, bin: &'a Binary, f: &mut F) -> bool
     where
-        F: Fn(BReference, &mut T) -> bool,
+        F: FnMut(BReference) -> bool,
     {
         let t = match self.val_at(bin) {
             None => return true,
@@ -242,14 +242,14 @@ impl BReference {
 
         match t.get_type(bin) {
             TYPE_ARRAY => {
-                if !f(*self, ob) {
+                if !f(*self) {
                     return false;
                 }
 
                 let bcoll = BArray::from(t);
                 for i in 0..bcoll.length(bin) {
                     let b = bcoll.child_index(bin, i).unwrap();
-                    if !b.walk(bin, ob, f) {
+                    if !b.walk(bin, f) {
                         return false;
                     }
                 }
@@ -257,21 +257,21 @@ impl BReference {
                 true
             }
             TYPE_MAP => {
-                if !f(*self, ob) {
+                if !f(*self) {
                     return false;
                 }
 
                 let bcoll = BMap::from(t);
                 for i in 0..bcoll.length(bin) {
                     let b = bcoll.child_index(bin, i).unwrap();
-                    if !b.walk(bin, ob, f) {
+                    if !b.walk(bin, f) {
                         return false;
                     }
                 }
 
                 true
             }
-            _ => f(*self, ob),
+            _ => f(*self),
         }
     }
 

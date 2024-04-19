@@ -104,5 +104,5 @@ When we ask serde to serialize this, dapt realizes that it points to multiple lo
 - Array Wildcard: ex. `*.name` Matches all children of a map. Is only one level deep
 - Recursive: ex. `~.name` Recursively searches downward for the matching node. Any Node can follow a recursive node, the only requirement is it has some child
 - Regex: ex. `/^host.*/.name` Matches all fields that match the regex. The regex is a rust regex, and is matched against the field name
-- First: ex. `host.{name,ip.*}` Matches the first node that returns values. Each child of a match is a full path
+- First: ex. `host.{name,ip.*}` Matches the first node that returns values. Each child of a match is a full path. If the child *could* match multiple values, it will still only match the first value.
 - Multi: ex. `host.(name|ip.*)` Matches all paths specified

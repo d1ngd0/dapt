@@ -307,6 +307,7 @@ impl Condition for NotEqualsCondition {
     }
 }
 
+// Now we need to re-think the interface of a dapt packet
 // impl Expression for Path {
 //     fn evaluate<'a>(&self, d: &'a Dapt) -> Option<Any<'a>> {
 //         d.get_path(self).ok()?.any()

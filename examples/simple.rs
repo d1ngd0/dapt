@@ -18,6 +18,6 @@ fn main() {
     }"#;
 
     let d: Dapt = serde_json::from_str(data).unwrap();
-    let name = d.get("phones[].number").unwrap();
+    let name = d.sub("phones[].number").unwrap();
     println!("{}", serde_json::to_string_pretty(&name).unwrap());
 }

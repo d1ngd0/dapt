@@ -8,7 +8,7 @@ fn main() {
     let d: Dapt = serde_json::from_str(&args[1]).unwrap();
 
     // get the path specified
-    let d = d.get(&args[2]).unwrap();
+    let d = d.sub(&args[2]).unwrap();
 
     // re serialize the data and print it out
     println!("{}", serde_json::to_string(&d).unwrap());

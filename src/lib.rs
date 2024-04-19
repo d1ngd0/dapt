@@ -3,6 +3,7 @@ use std::sync::Arc;
 use arrayvec::ArrayVec;
 use binary::BReference;
 use binary::{Binary, BinaryVisitor, SerializeBReference};
+use path::node::Discoverable;
 use path::parser::Node;
 use serde::ser::SerializeSeq;
 use serde::Deserializer;
@@ -163,36 +164,24 @@ impl Dapt {
         }
     }
 
-    pub fn get(&self, path: &str) -> Result<Dapt, error::Error> {
+    pub fn sub(&self, path: &str) -> Result<Dapt, error::Error> {
         let p = Path::try_from(path)?;
-        Ok(self.get_path(&p)?)
+        Ok(self.sub_path(&p)?)
     }
 
-    pub fn get_path(&self, path: &Path) -> Result<Dapt, error::Error> {
+    pub fn sub_path(&self, path: &Path) -> Result<Dapt, error::Error> {
         let mut d = Dapt {
             iter_loc: 0,
             ptrs: self.ptrs.clone(),
             b: Arc::clone(&self.b),
         };
 
-        for node in path.iter() {
-            d.step_path(node)?;
+        for p in self.ptrs.iter() {
+            path.find(&self.b, *p, &mut |b| {
+                d.ptrs.push(b);
+            })
         }
 
         Ok(d)
-    }
-
-    fn step_path(&mut self, n: &Node) -> Result<(), error::Error> {
-        let mut ptrs = ArrayVec::new();
-
-        for ptr in self.ptrs.iter() {
-            let node_ptrs = n.find(self.b.as_ref(), *ptr);
-            if let Some(node_ptrs) = node_ptrs {
-                ptrs.try_extend_from_slice(&node_ptrs[..])?;
-            }
-        }
-
-        self.ptrs = ptrs;
-        Ok(())
     }
 }

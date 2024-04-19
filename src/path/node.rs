@@ -2,14 +2,16 @@ use arrayvec::ArrayVec;
 use std::fmt;
 
 use crate::binary::{BArray, BKeyValue, BMap, BReference, Binary, TYPE_ARRAY, TYPE_MAP};
-use crate::{Ptrs, MAX_POINTERS};
+use crate::{Path, Ptrs, MAX_POINTERS};
 
 use super::parser::Node;
 
 // Node is the type that a parser puts out. each
 // node should implement the trait functions below
 pub trait Discoverable {
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs>;
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference);
 }
 
 #[derive(Debug, PartialEq)]
@@ -38,26 +40,24 @@ impl FieldLiteral {
 impl Discoverable for FieldLiteral {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
-        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
-
-        let n = b.val_at(bin)?;
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
+        let n = match b.val_at(bin) {
+            Some(n) => n,
+            None => return,
+        };
 
         match n.get_type(bin) {
             TYPE_MAP => {
                 let bcoll = BMap::from(n);
                 if let Some(child_location) = bcoll.child_key(&self.name, bin) {
-                    res.push(child_location.into());
+                    f(child_location);
                 }
             }
             _ => (),
-        }
-
-        if res.len() > 0 {
-            Some(res)
-        } else {
-            None
-        }
+        };
     }
 }
 
@@ -93,34 +93,32 @@ impl Array {
 impl Discoverable for Array {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
-        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
-
-        let n = b.val_at(bin)?;
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
+        let n = match b.val_at(bin) {
+            Some(n) => n,
+            None => return,
+        };
 
         match n.get_type(bin) {
             TYPE_ARRAY => {
                 let bcoll = BArray::from(n);
                 if let None = self.index {
-                    unsafe {
-                        res.set_len(bcoll.length(bin)); // set the length to hold the
-                                                        // indexes
-                        bcoll.child_indexes(bin, &mut res) // add the indexes
+                    for i in 0..bcoll.length(bin) {
+                        // we know the child is there because we call for length
+                        // in the for loop
+                        f(bcoll.child_index(bin, i).unwrap());
                     }
                 } else {
                     if let Some(child_location) = bcoll.child_index(bin, self.index.unwrap()) {
-                        res.push(child_location.into());
+                        f(child_location);
                     }
                 }
             }
             _ => (),
-        }
-
-        if res.len() > 0 {
-            Some(res)
-        } else {
-            None
-        }
+        };
     }
 }
 
@@ -141,27 +139,26 @@ pub struct Wildcard;
 impl Discoverable for Wildcard {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
-        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
-
-        let n = b.val_at(bin)?;
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
+        let n = match b.val_at(bin) {
+            Some(n) => n,
+            None => return,
+        };
 
         match n.get_type(bin) {
             TYPE_MAP => {
                 let bcoll = BMap::from(n);
-                unsafe {
-                    res.set_len(bcoll.length(bin)); // set the length to hold the indexes
-                    bcoll.child_indexes(bin, &mut res) // add the indexes
+                for i in 0..bcoll.length(bin) {
+                    // we know the child is there because we call for length
+                    // in the for loop
+                    f(bcoll.child_index(bin, i).unwrap());
                 }
             }
             _ => (),
-        }
-
-        if res.len() > 0 {
-            Some(res)
-        } else {
-            None
-        }
+        };
     }
 }
 
@@ -190,20 +187,14 @@ impl Recursive {
 impl Discoverable for Recursive {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
-        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
-        b.walk(bin, &mut res, &|childb, res| {
-            if let Some(ptrs) = self.child.find(bin, childb) {
-                res.try_extend_from_slice(&ptrs[..]).unwrap();
-            }
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
+        b.walk(bin, &mut |childref| {
+            self.child.find(bin, childref, f);
             true
         });
-
-        if res.len() > 0 {
-            Some(res)
-        } else {
-            None
-        }
     }
 }
 
@@ -219,11 +210,11 @@ impl fmt::Display for Recursive {
 // structure `{"error": "something went wrong"}`.
 #[derive(Debug, PartialEq)]
 pub struct First {
-    paths: Vec<Node>,
+    paths: Vec<Path>,
 }
 
 impl First {
-    pub fn new(paths: Vec<Node>) -> First {
+    pub fn new(paths: Vec<Path>) -> First {
         First { paths }
     }
 }
@@ -231,20 +222,20 @@ impl First {
 impl Discoverable for First {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
-        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
-
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
         for path in &self.paths {
-            if let Some(ptrs) = path.find(bin, b) {
-                res.try_extend_from_slice(&ptrs[..]).unwrap();
+            let mut found = false;
+            path.find(bin, b, &mut |v| {
+                found = true;
+                f(v);
+            });
+
+            if found {
                 break;
             }
-        }
-
-        if res.len() > 0 {
-            Some(res)
-        } else {
-            None
         }
     }
 }
@@ -271,11 +262,11 @@ impl fmt::Display for First {
 // `{"message": "hello", "error": "something went wrong"}`.
 #[derive(Debug, PartialEq)]
 pub struct Multi {
-    paths: Vec<Node>,
+    paths: Vec<Path>,
 }
 
 impl Multi {
-    pub fn new(paths: Vec<Node>) -> Multi {
+    pub fn new(paths: Vec<Path>) -> Multi {
         Multi { paths }
     }
 }
@@ -283,19 +274,13 @@ impl Multi {
 impl Discoverable for Multi {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
-        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
-
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
         for path in &self.paths {
-            if let Some(ptrs) = path.find(bin, b) {
-                res.try_extend_from_slice(&ptrs[..]).unwrap();
-            }
+            path.find(bin, b, f)
         }
-
-        if res.len() == 0 {
-            return None;
-        }
-        Some(res)
     }
 }
 
@@ -340,31 +325,29 @@ impl PartialEq for Regexp {
 impl Discoverable for Regexp {
     // find returns a list of pointers to the
     // child that matches the specified name.
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
-        let mut res: ArrayVec<BReference, MAX_POINTERS> = ArrayVec::new();
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
+        let n = match b.val_at(bin) {
+            Some(n) => n,
+            None => return,
+        };
 
-        let n = b.val_at(bin)?;
         match n.get_type(bin) {
             TYPE_MAP => {
                 let bcoll = BMap::from(n);
-                let mut indexes = vec![BReference::from(0); bcoll.length(bin)];
-                bcoll.child_indexes(bin, &mut indexes);
-
-                for i in indexes {
-                    let child = i.key_at(bin).unwrap();
-                    if self.name.is_match(child.key(bin)) {
-                        res.push(i.into());
+                for i in 0..bcoll.length(bin) {
+                    // we know we can unwrap because of the length in the for
+                    // loop and because a valid bMap will only have key children
+                    let child = bcoll.child_index(bin, i).unwrap();
+                    if self.name.is_match(child.key_at(bin).unwrap().key(bin)) {
+                        f(child);
                     }
                 }
             }
             _ => (),
-        }
-
-        if res.len() > 0 {
-            Some(res)
-        } else {
-            None
-        }
+        };
     }
 }
 

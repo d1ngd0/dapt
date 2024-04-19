@@ -61,16 +61,19 @@ pub enum Node {
 }
 
 impl Node {
-    pub fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
+    pub fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
         match self {
-            Node::FieldLiteral(fl) => fl.find(bin, b),
-            Node::Array(ar) => ar.find(bin, b),
-            Node::Wildcard(w) => w.find(bin, b),
-            Node::Recursive(r) => r.find(bin, b),
-            Node::First(f) => f.find(bin, b),
-            Node::Multi(m) => m.find(bin, b),
-            Node::Path(p) => p.find(bin, b),
-            Node::Regexp(r) => r.find(bin, b),
+            Node::FieldLiteral(fl) => fl.find(bin, b, f),
+            Node::Array(ar) => ar.find(bin, b, f),
+            Node::Wildcard(w) => w.find(bin, b, f),
+            Node::Recursive(r) => r.find(bin, b, f),
+            Node::First(fr) => fr.find(bin, b, f),
+            Node::Multi(m) => m.find(bin, b, f),
+            Node::Path(p) => p.find(bin, b, f),
+            Node::Regexp(r) => r.find(bin, b, f),
         }
     }
 
@@ -125,6 +128,21 @@ impl Path {
     fn from_nodes(nodes: Vec<Node>) -> Path {
         Path(nodes)
     }
+
+    fn find_depth<F>(&self, bin: &Binary, b: BReference, depth: usize, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
+        let node = match self.0.get(depth) {
+            Some(node) => node,
+            None => {
+                f(b);
+                return;
+            }
+        };
+
+        node.find(bin, b, &mut |b| self.find_depth(bin, b, depth + 1, f));
+    }
 }
 
 impl Default for Path {
@@ -134,26 +152,11 @@ impl Default for Path {
 }
 
 impl Discoverable for Path {
-    fn find(&self, bin: &Binary, b: BReference) -> Option<Ptrs> {
-        let mut ptrs = ArrayVec::new();
-        ptrs.push(b);
-
-        for node in self.iter() {
-            let mut new_ptrs = ArrayVec::new();
-            for ptr in ptrs {
-                if let Some(node_ptrs) = node.find(bin, ptr) {
-                    new_ptrs.extend(node_ptrs);
-                }
-            }
-
-            ptrs = new_ptrs;
-        }
-
-        if ptrs.len() == 0 {
-            return None;
-        }
-
-        Some(ptrs)
+    fn find<F>(&self, bin: &Binary, b: BReference, f: &mut F)
+    where
+        F: FnMut(BReference),
+    {
+        self.find_depth(bin, b, 0, f)
     }
 }
 
@@ -315,7 +318,7 @@ impl Parser<'_> {
     // paths. This is used for first, and multi. If you should continue the
     // function will return true, if you should stop because EOF was returned
     // from the parser it will return false
-    fn parse_path<F>(&mut self, ext: F) -> ParseResult<(Node, bool)>
+    fn parse_path<F>(&mut self, ext: F) -> ParseResult<(Path, bool)>
     where
         F: Fn(&str) -> ParseResult<Node>,
     {
@@ -340,7 +343,7 @@ impl Parser<'_> {
             ));
         }
 
-        Ok((Node::Path(Path::from_nodes(nodes)), cont))
+        Ok((Path::from_nodes(nodes), cont))
     }
 
     fn parse_recursive(&mut self) -> ParseResult<Node> {
