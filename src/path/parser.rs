@@ -56,7 +56,6 @@ pub enum Node {
     Recursive(Recursive),
     First(First),
     Multi(Multi),
-    Path(Path),
     Regexp(Regexp),
 }
 
@@ -72,7 +71,6 @@ impl Node {
             Node::Recursive(r) => r.find(bin, b, f),
             Node::First(fr) => fr.find(bin, b, f),
             Node::Multi(m) => m.find(bin, b, f),
-            Node::Path(p) => p.find(bin, b, f),
             Node::Regexp(r) => r.find(bin, b, f),
         }
     }
@@ -91,7 +89,6 @@ impl fmt::Display for Node {
             Node::Recursive(r) => write!(f, ".{}", r),
             Node::First(fr) => write!(f, "{}", fr),
             Node::Multi(m) => write!(f, "{}", m),
-            Node::Path(p) => write!(f, "{}", p),
             Node::Regexp(r) => write!(f, "{}", r),
         }
     }
@@ -127,6 +124,24 @@ impl Path {
 
     fn from_nodes(nodes: Vec<Node>) -> Path {
         Path(nodes)
+    }
+
+    // https://github.com/rust-lang/rust/issues/43520 here is why we need
+    // this, in the future hopefully we can do this without the heap allocations
+    pub fn find_simple(&self, bin: &Binary, b: BReference) -> Vec<BReference> {
+        let mut cur_ptrs = vec![b];
+        let mut next_ptrs = vec![];
+
+        for node in self.iter() {
+            cur_ptrs
+                .iter()
+                .for_each(|b| node.find(bin, *b, &mut |b| next_ptrs.push(b)));
+            cur_ptrs.resize(next_ptrs.len(), BReference::from(0));
+            cur_ptrs.copy_from_slice(&next_ptrs);
+            next_ptrs.clear();
+        }
+
+        cur_ptrs
     }
 
     fn find_depth<F>(&self, bin: &Binary, b: BReference, depth: usize, f: &mut F)
@@ -171,7 +186,6 @@ impl fmt::Display for Path {
                 Node::Recursive(r) => path.push_str(&format!(".{}", r)),
                 Node::First(f) => path.push_str(&format!(".{}", f)),
                 Node::Multi(m) => path.push_str(&format!(".{}", m)),
-                Node::Path(p) => path.push_str(&format!("{}", p)),
                 Node::Regexp(r) => path.push_str(&format!(".{}", r)),
             }
         }

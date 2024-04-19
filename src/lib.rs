@@ -172,7 +172,7 @@ impl Dapt {
     pub fn sub_path(&self, path: &Path) -> Result<Dapt, error::Error> {
         let mut d = Dapt {
             iter_loc: 0,
-            ptrs: self.ptrs.clone(),
+            ptrs: ArrayVec::new(),
             b: Arc::clone(&self.b),
         };
 

@@ -227,14 +227,13 @@ impl Discoverable for First {
         F: FnMut(BReference),
     {
         for path in &self.paths {
-            let mut found = false;
-            path.find(bin, b, &mut |v| {
-                found = true;
-                f(v);
-            });
-
-            if found {
-                break;
+            let ptrs = path.find_simple(bin, b);
+            match ptrs.get(0) {
+                Some(p) => {
+                    f(*p);
+                    return;
+                }
+                None => (),
             }
         }
     }
@@ -279,7 +278,7 @@ impl Discoverable for Multi {
         F: FnMut(BReference),
     {
         for path in &self.paths {
-            path.find(bin, b, f)
+            path.find_simple(bin, b).iter().for_each(|p| f(*p));
         }
     }
 }
