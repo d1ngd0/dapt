@@ -43,7 +43,7 @@ trait Condition {
 // optional value. This value can be Any type, which is what a dapt packet
 // can return.
 trait Expression {
-    fn evaluate<'a>(&self, d: &'a Dapt) -> Option<Any<'a>>;
+    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>>;
 }
 
 // Conjunctions are used to combine conditions
@@ -244,7 +244,29 @@ impl<'a> Parser<'a> {
                     None => Err(Error::unexpected_eof(&self.lex)),
                 }
             }
-            _ => Err(Error::with_history("expected key", &self.lex)),
+            STRING_WRAP => {
+                let value = self
+                    .lex
+                    .token()
+                    .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+
+                // consume the final " token, and return. If we get a different token
+                // or hit EOF we can return an error
+                match self.lex.token() {
+                    Some(STRING_WRAP) => Ok(Box::new(StringExpression {
+                        value: value.to_string(),
+                    })),
+                    Some(tok) => Err(Error::with_history(
+                        &format!("expected {STRING_WRAP} but got {tok}"),
+                        &self.lex,
+                    )),
+                    None => Err(Error::unexpected_eof(&self.lex)),
+                }
+            }
+            _ => Err(Error::with_history(
+                &format!("expected {KEY_WRAP} or {STRING_WRAP} but got {left}"),
+                &self.lex,
+            )),
         }
     }
 
@@ -345,8 +367,18 @@ impl Condition for NotEqualsCondition {
 }
 
 impl Expression for Path {
-    fn evaluate<'a>(&self, d: &'a Dapt) -> Option<Any<'a>> {
+    fn evaluate<'a, 'b: 'a>(&'a self, d: &'a Dapt) -> Option<Any<'a>> {
         d.any_path(self).ok()
+    }
+}
+
+struct StringExpression {
+    value: String,
+}
+
+impl Expression for StringExpression {
+    fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
+        Some(Any::Str(&self.value))
     }
 }
 
@@ -408,6 +440,14 @@ mod tests {
             r#" "a" == "b" AND "a" == "c" "#,
             false
         );
+
+        assert_conjunction!(
+            r#"{"a": "hello world"}"#,
+            r#" "a" == 'goodbye world' "#,
+            false
+        );
+
+        assert_conjunction!(r#"{"a": "hello world"}"#, r#" "a" == 'hello world' "#, true);
     }
 
     macro_rules! assert_where {
@@ -438,8 +478,8 @@ mod tests {
                 "b": 9,
                 "c": 10.0
             }"#,
-            r#"WHERE "a" == "b" AND ("a" == "c" OR "nope" == "nothere") "#,
-            false
+            r#"WHERE "a" != "b" AND ("a" == "c" OR "nope" == "nothere") "#,
+            true
         );
     }
 }
