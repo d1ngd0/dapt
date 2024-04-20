@@ -382,5 +382,56 @@ mod tests {
     #[test]
     fn test_condition() {
         assert_condition!(r#"{"a": 10, "b": 9}"#, r#" "a" == "b" "#, false);
+        assert_condition!(r#"{"a": 10, "b": "10"}"#, r#" "a" == "b" "#, true);
+    }
+
+    macro_rules! assert_conjunction {
+        ( $source:expr, $expr:expr, $expected:expr) => {
+            let mut parser = Parser::from($expr);
+            let expr = parser.parse_conjunction().unwrap();
+            let d: Dapt = serde_json::from_str($source).unwrap();
+            let result = expr.evaluate(&d);
+            assert_eq!(result, $expected);
+        };
+    }
+
+    #[test]
+    fn test_conjunction() {
+        assert_conjunction!(
+            r#"{"a": 10, "b": 9, "c": 10.0}"#,
+            r#" "a" != "b" AND "a" == "c" "#,
+            true
+        );
+
+        assert_conjunction!(
+            r#"{"a": 10, "b": 9, "c": 10.0}"#,
+            r#" "a" == "b" AND "a" == "c" "#,
+            false
+        );
+    }
+
+    macro_rules! assert_where {
+        ( $source:expr, $expr:expr, $expected:expr) => {
+            let mut parser = Parser::from($expr);
+            let expr = parser.parse_where().unwrap();
+            let d: Dapt = serde_json::from_str($source).unwrap();
+            let result = expr.condition.evaluate(&d);
+            assert_eq!(result, $expected);
+        };
+    }
+
+    #[test]
+    fn test_where() {
+        assert_where!(
+            r#"{"a": 10, "b": 9, "c": 10.0}"#,
+            r#"WHERE "a" != "b" AND "a" == "c" "#,
+            true
+        );
+
+        assert_where!(
+            r#"{"a": 10, "b": 9, "c": 10.0}"#,
+            r#"WHERE "a" == "b" AND ("a" == "c" OR "nope" == "nothere") "#,
+            false
+        );
     }
 }
