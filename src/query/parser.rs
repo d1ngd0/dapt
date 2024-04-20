@@ -429,6 +429,7 @@ mod tests {
 
     #[test]
     fn test_conjunction() {
+        // test key equality
         assert_conjunction!(
             r#"{"a": 10, "b": 9, "c": 10.0}"#,
             r#" "a" != "b" AND "a" == "c" "#,
@@ -441,6 +442,7 @@ mod tests {
             false
         );
 
+        // test string literal
         assert_conjunction!(
             r#"{"a": "hello world"}"#,
             r#" "a" == 'goodbye world' "#,
@@ -448,6 +450,19 @@ mod tests {
         );
 
         assert_conjunction!(r#"{"a": "hello world"}"#, r#" "a" == 'hello world' "#, true);
+
+        // test raw expression
+        assert_conjunction!(r#" {"a": true} "#, r#" "a" "#, true);
+        assert_conjunction!(r#" {"a": false} "#, r#" "a" "#, false);
+        assert_conjunction!(r#" {"a": 0} "#, r#" "a" "#, false);
+        assert_conjunction!(r#" {"a": 100} "#, r#" "a" "#, true);
+        assert_conjunction!(r#" {"a": "hello"} "#, r#" "a" "#, true);
+        assert_conjunction!(r#" {"a": ""} "#, r#" "a" "#, false);
+        assert_conjunction!(r#" {"a": ["a", "b"]} "#, r#" "a" "#, true);
+        assert_conjunction!(r#" {"a": []} "#, r#" "a" "#, false);
+        assert_conjunction!(r#" {"a": null} "#, r#" "a" "#, false);
+        assert_conjunction!(r#" {"a": {"a":1, "b":2}} "#, r#" "a" "#, true);
+        assert_conjunction!(r#" {"a": {}} "#, r#" "a" "#, false);
     }
 
     macro_rules! assert_where {

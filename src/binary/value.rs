@@ -381,7 +381,7 @@ impl<'a> Any<'a> {
             TYPE_ARRAY => {
                 let arr = BArray::from(token);
                 let mut items = Vec::with_capacity(arr.length(b));
-                for i in 0..arr.length(b) - 1 {
+                for i in 0..arr.length(b) {
                     let val_tok = arr.child_index(b, i).unwrap().val_at(b).unwrap();
                     items.push(Any::new(b, val_tok).unwrap());
                 }
@@ -390,7 +390,7 @@ impl<'a> Any<'a> {
             TYPE_MAP => {
                 let map = BMap::from(token);
                 let mut items = HashMap::with_capacity(map.length(b));
-                for i in 0..map.length(b) - 1 {
+                for i in 0..map.length(b) {
                     let key_tok = map.child_index(b, i).unwrap().key_at(b).unwrap();
                     let val_tok = key_tok.child(b).val_at(b).unwrap();
                     items.insert(key_tok.key(b), Any::new(b, val_tok).unwrap());
