@@ -3,8 +3,8 @@ use std::sync::Arc;
 use arrayvec::ArrayVec;
 use binary::BReference;
 use binary::{Binary, BinaryVisitor, SerializeBReference};
+use error::DaptResult;
 use path::node::Discoverable;
-use path::parser::Node;
 use serde::ser::SerializeSeq;
 use serde::Deserializer;
 
@@ -117,31 +117,57 @@ impl Dapt {
     // get will return the value of the first pointer, if
     // there is one. When calling this function you must know
     // the type of value within the dapt packet
-    pub fn val<'a, T: Deserialize<'a>>(&'a self) -> Option<T::Item> {
-        if self.ptrs.len() == 0 {
-            return None;
-        }
+    pub fn val<'a, T: Deserialize<'a>>(&'a self, path: &str) -> DaptResult<T::Item> {
+        let p = Path::try_from(path)?;
+        self.val_path::<T>(Some(&p))
+    }
 
-        self.b.get::<T>(self.ptrs[0])
+    pub fn val_path<'a, T: Deserialize<'a>>(&'a self, path: Option<&Path>) -> DaptResult<T::Item> {
+        let mut first = None;
+        self.find(path, &mut |b| {
+            if first.is_none() {
+                first = Some(b);
+            }
+        });
+
+        let first = match first {
+            Some(first) => first,
+            None => return Err(Error::NotFound),
+        };
+
+        Ok(self.b.get::<T>(first).unwrap())
     }
 
     // if you know the value is a string, you can grab it here without
     // taking additional heap allocations. This will live as long as
     // the dapt packet does.
-    pub fn str<'a>(&'a self) -> Option<&'a str> {
-        if self.ptrs.len() == 0 {
-            return None;
-        }
-
-        self.b.str(self.ptrs[0])
+    pub fn str<'a>(&'a self, path: &str) -> DaptResult<&'a str> {
+        self.val::<&str>(path)
     }
 
-    pub fn number(&self) -> Option<Number> {
-        if self.ptrs.len() == 0 {
-            return None;
-        }
+    pub fn str_path<'a>(&'a self, path: Option<&Path>) -> DaptResult<&'a str> {
+        self.val_path::<&str>(path)
+    }
 
-        self.b.number(self.ptrs[0]).ok()
+    pub fn number(&self, path: &str) -> DaptResult<Number> {
+        let p = Path::try_from(path)?;
+        self.number_path(Some(&p))
+    }
+
+    pub fn number_path<'a>(&'a self, path: Option<&Path>) -> DaptResult<Number> {
+        let mut first = None;
+        self.find(path, &mut |b| {
+            if first.is_none() {
+                first = Some(b);
+            }
+        });
+
+        let first = match first {
+            Some(first) => first,
+            None => return Err(Error::NotFound),
+        };
+
+        self.b.number(first)
     }
 
     pub fn any(&self) -> Option<Any<'_>> {
@@ -164,6 +190,29 @@ impl Dapt {
         }
     }
 
+    pub fn any_path(&self, path: &Path) -> DaptResult<Any<'_>> {
+        let mut ptrs = Vec::new();
+        self.find(Some(path), &mut |b| ptrs.push(b));
+
+        match ptrs.len() {
+            0 => Err(Error::NotFound),
+            1 => self.b.any(ptrs[0]).ok_or(Error::NotFound),
+            _ => {
+                let mut any = Vec::with_capacity(ptrs.len());
+                for ptr in ptrs.iter() {
+                    let val = match self.b.any(*ptr) {
+                        Some(val) => val,
+                        None => continue,
+                    };
+
+                    any.push(val);
+                }
+
+                Ok(Any::Array(any))
+            }
+        }
+    }
+
     pub fn sub(&self, path: &str) -> Result<Dapt, error::Error> {
         let p = Path::try_from(path)?;
         Ok(self.sub_path(&p)?)
@@ -176,12 +225,19 @@ impl Dapt {
             b: Arc::clone(&self.b),
         };
 
-        for p in self.ptrs.iter() {
-            path.find(&self.b, *p, &mut |b| {
-                d.ptrs.push(b);
-            })
-        }
+        self.find(Some(path), &mut |b| {
+            d.ptrs.push(b);
+        });
 
         Ok(d)
+    }
+
+    fn find<F: FnMut(BReference)>(&self, path: Option<&Path>, f: &mut F) {
+        match path {
+            // if there is a path, execute it to find the appropraite pointers
+            Some(path) => self.ptrs.iter().for_each(|p| path.find(&self.b, *p, f)),
+            // if there is no path we can call the closure on our current location
+            None => self.ptrs.iter().for_each(|p| f(*p)),
+        }
     }
 }

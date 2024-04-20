@@ -15,6 +15,7 @@ pub enum Error {
     NumberConversionFailed(String),
     ParseError(String),
     TooManyPointers,
+    NotFound,
 }
 
 impl From<ParseFloatError> for Error {

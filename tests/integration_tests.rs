@@ -23,11 +23,11 @@ fn test_deserialize() {
 
     // value testing
     let d: Dapt = serde_json::from_str(data).unwrap();
-    assert_eq!(d.sub("d.f").unwrap().str(), Some("world"));
-    assert_eq!(d.sub("a").unwrap().val::<u64>(), Some(1));
-    assert_eq!(d.sub("b").unwrap().str(), Some("hello"));
-    assert_eq!(d.sub("d.e").unwrap().val::<u64>(), Some(1000));
-    assert_eq!(d.sub("~.deepest").unwrap().str(), Some("hello"));
+    assert_eq!(d.sub("d.f").unwrap().str_path(None).unwrap(), "world");
+    assert_eq!(d.sub("a").unwrap().val_path::<u64>(None).unwrap(), 1);
+    assert_eq!(d.str("b").unwrap(), "hello");
+    assert_eq!(d.val::<u64>("d.e").unwrap(), 1000);
+    assert_eq!(d.str("~.deepest").unwrap(), "hello");
 
     // field literal tests
     assert_eq!(

@@ -154,7 +154,7 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
         }
 
         let mut bin = self.bin.borrow_mut();
-        let (bref, array) = BArray::new(None, &ptrs[..], &mut bin);
+        let (bref, _array) = BArray::new(None, &ptrs[..], &mut bin);
         Ok(BReference::from(bref))
     }
 
@@ -165,12 +165,12 @@ impl<'de> Visitor<'de> for &BinaryVisitor {
         let mut ptrs = Vec::new();
 
         while let Some((k, v)) = map.next_entry_seed(MapKeySeed, self)? {
-            let (bref, bkeyVal) = BKeyValue::new(None, v, &k, &mut self.bin.borrow_mut());
+            let (bref, _bkey_val) = BKeyValue::new(None, v, &k, &mut self.bin.borrow_mut());
             ptrs.push(bref);
         }
 
         let mut bin = self.bin.borrow_mut();
-        let (bref, map) = BMap::new(None, &ptrs[..], &mut bin);
+        let (bref, _map) = BMap::new(None, &ptrs[..], &mut bin);
         Ok(bref)
     }
 

@@ -1,8 +1,7 @@
-use arrayvec::ArrayVec;
 use std::fmt;
 
-use crate::binary::{BArray, BKeyValue, BMap, BReference, Binary, TYPE_ARRAY, TYPE_MAP};
-use crate::{Path, Ptrs, MAX_POINTERS};
+use crate::binary::{BArray, BMap, BReference, Binary, TYPE_ARRAY, TYPE_MAP};
+use crate::Path;
 
 use super::parser::Node;
 

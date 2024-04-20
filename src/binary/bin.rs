@@ -4,7 +4,7 @@ use std::mem;
 use std::ops::Deref;
 
 use crate::{
-    binary::{Any, Deserialize, Number, Serialize, TYPE_STR},
+    binary::{Any, Deserialize, Number, Serialize},
     error::{DaptResult, Error},
 };
 
@@ -57,27 +57,6 @@ impl Binary {
 
     fn at_mut(&mut self, index: usize, width: usize) -> &mut [u8] {
         self.0.get_mut(index..index + width).unwrap()
-    }
-
-    fn single_at(&self, index: usize) -> u8 {
-        *self.0.get(index).unwrap()
-    }
-
-    fn single_at_mut(&mut self, index: usize) -> &mut u8 {
-        self.0.get_mut(index).unwrap()
-    }
-
-    fn token_bounds(&self, index: usize) -> Option<(usize, usize)> {
-        let t = self.0.get(index)?;
-        if *t == TYPE_REFERENCE {
-            Some((index, index + REFERENCE_LENGTH))
-        } else {
-            let length = self
-                .0
-                .get(index + LENGTH_OFFSET..index + LENGTH_OFFSET_END)?;
-            let length = u16::deserialize(length);
-            Some((index, index + length as usize))
-        }
     }
 
     // token_at will return the token at the given location.
@@ -185,10 +164,11 @@ impl BReference {
         }
     }
 
-    fn set_index(&self, bin: &mut Binary, index: usize) {
-        let u = index as u32;
-        u.serialize(bin.at_mut(self.0 + PTR_OFFSET, PTR_WIDTH));
-    }
+    // This will be needed in the future when we add mutation
+    // fn set_index(&self, bin: &mut Binary, index: usize) {
+    //     let u = index as u32;
+    //     u.serialize(bin.at_mut(self.0 + PTR_OFFSET, PTR_WIDTH));
+    // }
 
     pub fn resolve(&self, bin: &Binary, max_depth: isize) -> Option<BToken> {
         if max_depth <= 0 {

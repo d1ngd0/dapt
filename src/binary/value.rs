@@ -7,9 +7,7 @@ use crate::{
 
 use base64::{engine::general_purpose::STANDARD_NO_PAD as Base64Encoder, Engine as _};
 
-use super::{
-    BArray, BKeyValue, BMap, BReference, BToken, MAX_REFERENCE_DEPTH, TYPE_ARRAY, TYPE_MAP,
-};
+use super::{BArray, BMap, BToken, TYPE_ARRAY, TYPE_MAP};
 
 // Serialize is used to
 pub trait Serialize {

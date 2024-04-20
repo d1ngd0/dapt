@@ -1,10 +1,7 @@
 use std::fmt;
 use std::ops::Deref;
 
-use arrayvec::ArrayVec;
-
 use crate::binary::{BReference, Binary};
-use crate::Ptrs;
 
 use super::lexer::Lexer;
 use super::node::{Array, Discoverable, FieldLiteral, First, Multi, Recursive, Regexp, Wildcard};
