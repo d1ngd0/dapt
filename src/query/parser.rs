@@ -423,13 +423,21 @@ mod tests {
     #[test]
     fn test_where() {
         assert_where!(
-            r#"{"a": 10, "b": 9, "c": 10.0}"#,
+            r#"{
+                "a": 10,
+                "b": 9,
+                "c": 10.0
+            }"#,
             r#"WHERE "a" != "b" AND "a" == "c" "#,
             true
         );
 
         assert_where!(
-            r#"{"a": 10, "b": 9, "c": 10.0}"#,
+            r#"{
+                "a": 10,
+                "b": 9,
+                "c": 10.0
+            }"#,
             r#"WHERE "a" == "b" AND ("a" == "c" OR "nope" == "nothere") "#,
             false
         );
