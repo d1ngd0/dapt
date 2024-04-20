@@ -43,7 +43,11 @@ impl<'a> Lexer<'a> {
 
     // peak returns the next token without moving the head forward
     pub fn peak(&mut self) -> Option<&'a str> {
+        // keep track of "escape_token" state before the call so we can
+        // set it back to the original state after the call
+        let escaped = self.escape_token;
         let (tok, _) = self.full_next()?;
+        self.escape_token = escaped;
         Some(tok)
     }
 
@@ -93,7 +97,7 @@ impl<'a> Lexer<'a> {
     // function does not stitch tokens together like >=. Use peak instead. This function
     // also assumes there is no whitespace at the head specified
     fn next(&mut self, head: usize) -> Option<(&'a str, usize)> {
-        let c = self.path[head..].char_indices();
+        let c = self.path[head..].chars();
         let mut tok: Option<&str> = None;
         let mut next_index = head;
         let mut escape_next = false;
@@ -105,7 +109,7 @@ impl<'a> Lexer<'a> {
 
         // important, for every path out of this loop you MUST consider what to
         // do with next_index given your context.
-        'charloop: for (i, char) in c {
+        'charloop: for char in c {
             if !escape_all && char.is_whitespace() {
                 break 'charloop;
             }
@@ -242,6 +246,9 @@ mod test {
             let mut toks = vec![];
             let expected: Vec<&str> = vec![$($args),*];
 
+            // use peak first to make sure it doesn't cause any changes
+            let _  = p.peak();
+
             let mut tok = p.token();
             while let Some(t) = tok {
                 toks.push(t);
@@ -308,6 +315,7 @@ mod test {
         );
 
         test_lexor!("()", "(", ")");
+        test_lexor!(r#" "a" == "b" "#, "\"", "a", "\"", "==", "\"", "b", "\"");
     }
 
     #[test]

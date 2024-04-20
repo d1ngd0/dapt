@@ -174,7 +174,9 @@ impl<'a> Parser<'a> {
 
         // check for EOF (which could be expected this time) or an AND or OR
         match self.lex.peak() {
-            None | Some(OR) | Some(AND) => return Ok(Box::new(ExistsCondition { expr: left })),
+            None | Some(OR) | Some(AND) => {
+                return Ok(Box::new(DefaultExpressCondition { expr: left }))
+            }
             _ => (),
         };
 
@@ -208,8 +210,8 @@ impl<'a> Parser<'a> {
 
                 Ok(Box::new(NotEqualsCondition { left, right }))
             }
-            _ => Err(Error::with_history(
-                "expected comparison operator, AND or OR",
+            other => Err(Error::with_history(
+                &format!("expected comparison operator, AND or OR got \"{}\"", other),
                 &self.lex,
             )),
         }
@@ -234,7 +236,7 @@ impl<'a> Parser<'a> {
                 // consume the final " token, and return. If we get a different token
                 // or hit EOF we can return an error
                 match self.lex.token() {
-                    Some(KEY_WRAP) => todo!(),
+                    Some(KEY_WRAP) => Ok(Box::new(path)),
                     Some(tok) => Err(Error::with_history(
                         &format!("expected {KEY_WRAP} but got {tok}"),
                         &self.lex,
@@ -262,6 +264,41 @@ impl<'a> Parser<'a> {
     //         _ => None,
     //     }
     // }
+}
+
+// if we have a naked expression which needs to be a
+// condition we can wrap it in this, these are the default
+// rules for what is truthy and what is falsey
+struct DefaultExpressCondition {
+    expr: Box<dyn Expression>,
+}
+
+impl Condition for DefaultExpressCondition {
+    fn evaluate(&self, d: &Dapt) -> bool {
+        match self.expr.evaluate(d) {
+            Some(Any::Null) => false,
+            Some(Any::Bool(b)) => b,
+            Some(Any::USize(u)) => u != 0,
+            Some(Any::ISize(u)) => u != 0,
+            Some(Any::U128(u)) => u != 0,
+            Some(Any::I128(i)) => i != 0,
+            Some(Any::U64(u)) => u != 0,
+            Some(Any::I64(i)) => i != 0,
+            Some(Any::U32(u)) => u != 0,
+            Some(Any::I32(i)) => i != 0,
+            Some(Any::U16(u)) => u != 0,
+            Some(Any::I16(i)) => i != 0,
+            Some(Any::U8(u)) => u != 0,
+            Some(Any::I8(i)) => i != 0,
+            Some(Any::F64(f)) => f != 0.0,
+            Some(Any::F32(f)) => f != 0.0,
+            Some(Any::Str(s)) => !s.is_empty(),
+            Some(Any::Array(a)) => !a.is_empty(),
+            Some(Any::Map(m)) => !m.is_empty(),
+            Some(_) => true,
+            None => false,
+        }
+    }
 }
 
 // ExistsCondition is a condition that checks if an expression
@@ -307,15 +344,43 @@ impl Condition for NotEqualsCondition {
     }
 }
 
-// Now we need to re-think the interface of a dapt packet
-// impl Expression for Path {
-//     fn evaluate<'a>(&self, d: &'a Dapt) -> Option<Any<'a>> {
-//         d.get_path(self).ok()?.any()
-//     }
-// }
+impl Expression for Path {
+    fn evaluate<'a>(&self, d: &'a Dapt) -> Option<Any<'a>> {
+        d.any_path(self).ok()
+    }
+}
 
-// impl Expression for Any<'_> {
-//     fn evaluate<'a>(&self, _: &'a Dapt) -> Option<Any<'a>> {
-//         Some(*self)
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! assert_expression {
+        ( $source:expr, $expr:expr, $expected:expr) => {
+            let mut parser = Parser::from($expr);
+            let expr = parser.parse_expression().unwrap();
+            let d: Dapt = serde_json::from_str($source).unwrap();
+            let result = expr.evaluate(&d).unwrap();
+            assert_eq!(result, $expected);
+        };
+    }
+
+    #[test]
+    fn test_expression() {
+        assert_expression!(r#"{"a": 10}"#, "\"a\"", Any::U64(10));
+    }
+
+    macro_rules! assert_condition {
+        ( $source:expr, $expr:expr, $expected:expr) => {
+            let mut parser = Parser::from($expr);
+            let expr = parser.parse_condition().unwrap();
+            let d: Dapt = serde_json::from_str($source).unwrap();
+            let result = expr.evaluate(&d);
+            assert_eq!(result, $expected);
+        };
+    }
+
+    #[test]
+    fn test_condition() {
+        assert_condition!(r#"{"a": 10, "b": 9}"#, r#" "a" == "b" "#, false);
+    }
+}
