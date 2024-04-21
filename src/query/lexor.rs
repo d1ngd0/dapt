@@ -7,6 +7,12 @@ const TOKEN_GREATER: char = '>';
 const TOKEN_LESS: char = '<';
 const TOKEN_PARENTHESIS_OPEN: char = '(';
 const TOKEN_PARENTHESIS_CLOSE: char = ')';
+const TOKEN_CURLEY_OPEN: char = '{';
+const TOKEN_CURLEY_CLOSE: char = '}';
+const TOKEN_COMMA: char = ',';
+const TOKEN_COLON: char = ':';
+const TOKEN_SQUARE_OPEN: char = '[';
+const TOKEN_SQUARE_CLOSE: char = ']';
 
 pub struct Lexer<'a> {
     path: &'a str,
@@ -121,7 +127,13 @@ impl<'a> Lexer<'a> {
                 | TOKEN_NEGATE
                 | TOKEN_GREATER
                 | TOKEN_PARENTHESIS_OPEN
-                | TOKEN_PARENTHESIS_CLOSE => {
+                | TOKEN_PARENTHESIS_CLOSE
+                | TOKEN_CURLEY_OPEN
+                | TOKEN_CURLEY_CLOSE
+                | TOKEN_COMMA
+                | TOKEN_COLON
+                | TOKEN_SQUARE_OPEN
+                | TOKEN_SQUARE_CLOSE => {
                     // if the previous token was an escape token, we just want to add this to the
                     // existing token
                     if escape_next || escape_all {

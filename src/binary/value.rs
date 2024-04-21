@@ -244,6 +244,7 @@ impl Deserialize<'_> for () {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum Number {
     USize(usize),
     U8(u8),
@@ -453,6 +454,27 @@ impl From<Any<'_>> for String {
                 result
             }
             Any::Null => "<null>".to_string(),
+        }
+    }
+}
+
+impl From<Number> for Any<'_> {
+    fn from(value: Number) -> Self {
+        match value {
+            Number::USize(val) => Any::USize(val),
+            Number::U8(val) => Any::U8(val),
+            Number::U16(val) => Any::U16(val),
+            Number::U32(val) => Any::U32(val),
+            Number::U64(val) => Any::U64(val),
+            Number::U128(val) => Any::U128(val),
+            Number::ISize(val) => Any::ISize(val),
+            Number::I8(val) => Any::I8(val),
+            Number::I16(val) => Any::I16(val),
+            Number::I32(val) => Any::I32(val),
+            Number::I64(val) => Any::I64(val),
+            Number::I128(val) => Any::I128(val),
+            Number::F32(val) => Any::F32(val),
+            Number::F64(val) => Any::F64(val),
         }
     }
 }

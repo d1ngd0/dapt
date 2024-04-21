@@ -1,4 +1,6 @@
-use crate::{Any, Dapt, Path};
+use std::collections::HashMap;
+
+use crate::{Any, Dapt, Number, Path};
 
 use super::{
     error::{Error, QueryResult},
@@ -19,6 +21,16 @@ const AND: &str = "AND";
 const OR: &str = "OR";
 const KEY_WRAP: &str = "\"";
 const STRING_WRAP: &str = "'";
+const NULL: &str = "NULL";
+const TRUE: &str = "TRUE";
+const FALSE: &str = "FALSE";
+const MAP_WRAP: &str = "{";
+const MAP_WRAP_END: &str = "}";
+const MAP_CHILD_SET: &str = ":";
+const MAP_CHILD_SEP: &str = ",";
+const ARRAY_WRAP: &str = "[";
+const ARRAY_WRAP_END: &str = "]";
+const ARRAY_CHILD_SEP: &str = ",";
 
 struct Parser<'a> {
     lex: Lexer<'a>,
@@ -223,7 +235,7 @@ impl<'a> Parser<'a> {
             .token()
             .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
 
-        match left {
+        match left.to_uppercase().as_str() {
             KEY_WRAP => {
                 let key = self
                     .lex
@@ -263,10 +275,139 @@ impl<'a> Parser<'a> {
                     None => Err(Error::unexpected_eof(&self.lex)),
                 }
             }
+            MAP_WRAP => {
+                let mut map = HashMap::new();
+                loop {
+                    // pase 'key': <expression>
+                    let key = self.parse_string()?;
+                    self.consume_token(MAP_CHILD_SET)?;
+                    let value = self.parse_expression()?;
+
+                    map.insert(key, value);
+
+                    match self.lex.token() {
+                        Some(MAP_WRAP_END) => break,
+                        Some(MAP_CHILD_SEP) => continue,
+                        Some(tok) => {
+                            return Err(Error::with_history(
+                                &format!(
+                                    "expected {MAP_CHILD_SEP} or {MAP_WRAP_END} but got {tok}"
+                                ),
+                                &self.lex,
+                            ))
+                        }
+                        None => return Err(Error::unexpected_eof(&self.lex)),
+                    }
+                }
+
+                Ok(Box::new(map))
+            }
+            ARRAY_WRAP => {
+                let mut arr = Vec::new();
+                loop {
+                    let value = self.parse_expression()?;
+                    arr.push(value);
+
+                    match self.lex.token() {
+                        Some(ARRAY_WRAP_END) => break,
+                        Some(ARRAY_CHILD_SEP) => continue,
+                        Some(tok) => {
+                            return Err(Error::with_history(
+                                &format!("expected , or {ARRAY_WRAP_END} but got {tok}"),
+                                &self.lex,
+                            ))
+                        }
+                        None => return Err(Error::unexpected_eof(&self.lex)),
+                    }
+                }
+
+                Ok(Box::new(arr))
+            }
+
+            TRUE => Ok(Box::new(BoolExpression { value: true })),
+            FALSE => Ok(Box::new(BoolExpression { value: false })),
+            NULL => Ok(Box::new(NullExpression)),
+            _ => self.parse_unwrapped_expression(left),
+        }
+    }
+
+    fn parse_unwrapped_expression(&self, left: &str) -> QueryResult<Box<dyn Expression>> {
+        let mut chars = left.chars();
+        match chars.next() {
+            Some('0'..='9') => {
+                if chars.filter(|c| *c == '.').count() == 1 {
+                    let num = left.parse::<f64>().map_err(|e| {
+                        Error::with_history(&format!("expected integer but got {}", e), &self.lex)
+                    })?;
+
+                    Ok(Box::new(Number::F64(num)))
+                } else {
+                    let num = left.parse::<usize>().map_err(|e| {
+                        Error::with_history(&format!("expected integer but got {}", e), &self.lex)
+                    })?;
+
+                    Ok(Box::new(Number::USize(num)))
+                }
+            }
+            Some('-') => {
+                if chars.filter(|c| *c == '.').count() == 1 {
+                    let num = left.parse::<f64>().map_err(|e| {
+                        Error::with_history(&format!("expected integer but got {}", e), &self.lex)
+                    })?;
+
+                    Ok(Box::new(Number::F64(num)))
+                } else {
+                    let num = left.parse::<usize>().map_err(|e| {
+                        Error::with_history(&format!("expected integer but got {}", e), &self.lex)
+                    })?;
+
+                    Ok(Box::new(Number::USize(num)))
+                }
+            }
             _ => Err(Error::with_history(
-                &format!("expected {KEY_WRAP} or {STRING_WRAP} but got {left}"),
+                &format!("unexpected token {}", left),
                 &self.lex,
             )),
+        }
+    }
+
+    fn parse_string(&mut self) -> QueryResult<String> {
+        match self.lex.token() {
+            Some(STRING_WRAP) => (),
+            Some(tok) => {
+                return Err(Error::with_history(
+                    &format!("expected {STRING_WRAP} but got {tok}"),
+                    &self.lex,
+                ))
+            }
+            None => return Err(Error::unexpected_eof(&self.lex)),
+        }
+
+        let value = self
+            .lex
+            .token()
+            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+
+        // consume the final " token, and return. If we get a different token
+        // or hit EOF we can return an error
+        match self.lex.token() {
+            Some(STRING_WRAP) => Ok(value.to_string()),
+            Some(tok) => Err(Error::with_history(
+                &format!("expected {STRING_WRAP} but got {tok}"),
+                &self.lex,
+            )),
+            None => Err(Error::unexpected_eof(&self.lex)),
+        }
+    }
+
+    fn consume_token(&mut self, expected: &str) -> QueryResult<()> {
+        match self.lex.token() {
+            Some(tok) if tok == expected => Ok(()),
+            Some(tok) => Err(Error::with_history(
+                &format!("expected {} but got {}", expected, tok),
+                &self.lex,
+            )),
+            None => Err(Error::unexpected_eof(&self.lex)),
         }
     }
 
@@ -382,6 +523,56 @@ impl Expression for StringExpression {
     }
 }
 
+struct NullExpression;
+
+impl Expression for NullExpression {
+    fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
+        Some(Any::Null)
+    }
+}
+
+struct BoolExpression {
+    value: bool,
+}
+
+impl Expression for BoolExpression {
+    fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
+        Some(Any::Bool(self.value))
+    }
+}
+
+impl Expression for Number {
+    fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
+        Some(Any::from(*self))
+    }
+}
+
+impl Expression for HashMap<String, Box<dyn Expression>> {
+    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
+        let mut map = HashMap::new();
+        for (k, v) in self.iter() {
+            if let Some(val) = v.evaluate(d) {
+                map.insert(&k[..], val);
+            }
+        }
+
+        Some(Any::Map(map))
+    }
+}
+
+impl Expression for Vec<Box<dyn Expression>> {
+    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
+        let mut arr = Vec::new();
+        for v in self.iter() {
+            if let Some(val) = v.evaluate(d) {
+                arr.push(val);
+            }
+        }
+
+        Some(Any::Array(arr))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,6 +654,59 @@ mod tests {
         assert_conjunction!(r#" {"a": null} "#, r#" "a" "#, false);
         assert_conjunction!(r#" {"a": {"a":1, "b":2}} "#, r#" "a" "#, true);
         assert_conjunction!(r#" {"a": {}} "#, r#" "a" "#, false);
+        // this key doesn't exist
+        assert_conjunction!(r#" {"a": {}} "#, r#" "no_existy" "#, false);
+
+        // handling null
+        assert_conjunction!(r#"{"a": null}"#, r#" "a" == NULL "#, true);
+        assert_conjunction!(r#"{"a": null}"#, r#" "a" != NULL "#, false);
+        // "a" has no value, null is a valid value... not sure what I think about
+        // that. Currently you could ` "a" ` alone to test for it's existance
+        assert_conjunction!(r#"{"b": "something"}"#, r#" "a" != NULL "#, false);
+
+        // test bool
+        assert_conjunction!(r#"{"a": true}"#, r#" "a" == true "#, true);
+        assert_conjunction!(r#"{"a": false}"#, r#" "a" == false "#, true);
+        assert_conjunction!(r#"{"a": true}"#, r#" "a" != true "#, false);
+        assert_conjunction!(r#"{"a": false}"#, r#" "a" != false "#, false);
+
+        // test numbers
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" == 10 "#, true);
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" != 10 "#, false);
+        assert_conjunction!(r#"{"a": 10.98}"#, r#" "a" == 10.98 "#, true);
+
+        // test map
+        assert_conjunction!(
+            r#"{"a": {"b": 10, "c": 20}}"#,
+            r#" "a" == {'b': 10, 'c': 20} "#,
+            true
+        );
+
+        assert_conjunction!(
+            r#"{"a": {"b": {"c": 20}}}"#,
+            r#" "a" == {'b': {'c': 20}} "#,
+            true
+        );
+
+        assert_conjunction!(r#"{"a": [1,2,3]}"#, r#" "a" == [3,2,1] "#, true);
+        assert_conjunction!(r#"{"a": [1,2,3,4]}"#, r#" "a" == [3,2,1] "#, false);
+
+        // because you are selecting multiple things, the returned value is an array
+        // so we can compare that to an array literal
+        assert_conjunction!(
+            r#"{"a": {"b": "hello", "c": "world"}}"#,
+            r#" "a.*" == ['hello', 'world'] "#,
+            true
+        );
+
+        // this is silly but is the same thing we are doing above, just using
+        // keys directly. This is allowed because the value can be any expression
+        // same with maps
+        assert_conjunction!(
+            r#"{"a": {"b": "hello", "c": "world"}}"#,
+            r#" "a.*" == ["a.b", "a.c"] "#,
+            true
+        );
     }
 
     macro_rules! assert_where {
