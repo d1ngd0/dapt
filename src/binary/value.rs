@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem};
+use std::{cmp::Ordering, collections::HashMap, mem};
 
 use crate::{
     binary::Binary,
@@ -479,6 +479,160 @@ impl From<Number> for Any<'_> {
     }
 }
 
+macro_rules! number_eq_arm {
+    ($type:ty, $a:ident, $other:ident) => {{
+        // TODO: Let your heart fill with enough anger that you
+        // solve this problem. Then feel a great release once you
+        // give up and cry in the corner. Uncomment to see my pain.
+        // https://internals.rust-lang.org/t/tryfrom-for-f64/9793
+        // let val = match <$type>::try_from(*$other) {
+        //     Ok(val) => val,
+        //     Err(_) => return false,
+        // };
+
+        // this can panic :D but it's fine
+        // everything is fine
+        // just fine
+        // I'm fine
+        //
+        //
+        // I'm not fine
+        *$a == *$other as $type
+    }};
+}
+
+macro_rules! impl_partial_eq_number {
+    ($type:ty) => {
+        impl PartialEq<$type> for Number {
+            fn eq(&self, other: &$type) -> bool {
+                match self {
+                    Number::U8(a) => number_eq_arm!(u8, a, other),
+                    Number::U16(a) => number_eq_arm!(u16, a, other),
+                    Number::U32(a) => number_eq_arm!(u32, a, other),
+                    Number::U64(a) => number_eq_arm!(u64, a, other),
+                    Number::U128(a) => number_eq_arm!(u128, a, other),
+                    Number::USize(a) => number_eq_arm!(usize, a, other),
+                    Number::I8(a) => number_eq_arm!(i8, a, other),
+                    Number::I16(a) => number_eq_arm!(i16, a, other),
+                    Number::I32(a) => number_eq_arm!(i32, a, other),
+                    Number::I64(a) => number_eq_arm!(i64, a, other),
+                    Number::I128(a) => number_eq_arm!(i128, a, other),
+                    Number::ISize(a) => number_eq_arm!(isize, a, other),
+                    Number::F32(a) => number_eq_arm!(f32, a, other),
+                    Number::F64(a) => number_eq_arm!(f64, a, other),
+                }
+            }
+        }
+    };
+}
+
+impl_partial_eq_number!(u8);
+impl_partial_eq_number!(u16);
+impl_partial_eq_number!(u32);
+impl_partial_eq_number!(u64);
+impl_partial_eq_number!(u128);
+impl_partial_eq_number!(usize);
+impl_partial_eq_number!(i8);
+impl_partial_eq_number!(i16);
+impl_partial_eq_number!(i32);
+impl_partial_eq_number!(i64);
+impl_partial_eq_number!(i128);
+impl_partial_eq_number!(isize);
+impl_partial_eq_number!(f32);
+impl_partial_eq_number!(f64);
+
+impl PartialEq for Number {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Number::U8(a) => other == a,
+            Number::U16(a) => other == a,
+            Number::U32(a) => other == a,
+            Number::U64(a) => other == a,
+            Number::U128(a) => other == a,
+            Number::USize(a) => other == a,
+            Number::I8(a) => other == a,
+            Number::I16(a) => other == a,
+            Number::I32(a) => other == a,
+            Number::I64(a) => other == a,
+            Number::I128(a) => other == a,
+            Number::ISize(a) => other == a,
+            Number::F32(a) => other == a,
+            Number::F64(a) => other == a,
+        }
+    }
+}
+
+impl PartialOrd for Number {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match other {
+            Number::USize(other) => self.partial_cmp(other),
+            Number::U8(other) => self.partial_cmp(other),
+            Number::U16(other) => self.partial_cmp(other),
+            Number::U32(other) => self.partial_cmp(other),
+            Number::U64(other) => self.partial_cmp(other),
+            Number::U128(other) => self.partial_cmp(other),
+            Number::ISize(other) => self.partial_cmp(other),
+            Number::I8(other) => self.partial_cmp(other),
+            Number::I16(other) => self.partial_cmp(other),
+            Number::I32(other) => self.partial_cmp(other),
+            Number::I64(other) => self.partial_cmp(other),
+            Number::I128(other) => self.partial_cmp(other),
+            Number::F32(other) => self.partial_cmp(other),
+            Number::F64(other) => self.partial_cmp(other),
+        }
+    }
+}
+
+macro_rules! number_ord_arm {
+    ($type:ty, $a:ident, $other:ident) => {{
+        // here too we must handle converting to unsafe types
+        // because this will panic. scoll up to see more context
+        // on my disent into madness
+        let val = *$other as $type;
+        $a.partial_cmp(&val)
+    }};
+}
+
+macro_rules! impl_partial_ord_number {
+    ($type:ty) => {
+        impl PartialOrd<$type> for Number {
+            fn partial_cmp(&self, other: &$type) -> Option<Ordering> {
+                match self {
+                    Number::USize(val) => number_ord_arm!(usize, val, other),
+                    Number::U8(val) => number_ord_arm!(u8, val, other),
+                    Number::U16(val) => number_ord_arm!(u16, val, other),
+                    Number::U32(val) => number_ord_arm!(u32, val, other),
+                    Number::U64(val) => number_ord_arm!(u64, val, other),
+                    Number::U128(val) => number_ord_arm!(u128, val, other),
+                    Number::ISize(val) => number_ord_arm!(isize, val, other),
+                    Number::I8(val) => number_ord_arm!(i8, val, other),
+                    Number::I16(val) => number_ord_arm!(i16, val, other),
+                    Number::I32(val) => number_ord_arm!(i32, val, other),
+                    Number::I64(val) => number_ord_arm!(i64, val, other),
+                    Number::I128(val) => number_ord_arm!(i128, val, other),
+                    Number::F32(val) => number_ord_arm!(f32, val, other),
+                    Number::F64(val) => number_ord_arm!(f64, val, other),
+                }
+            }
+        }
+    };
+}
+
+impl_partial_ord_number!(u8);
+impl_partial_ord_number!(u16);
+impl_partial_ord_number!(u32);
+impl_partial_ord_number!(u64);
+impl_partial_ord_number!(u128);
+impl_partial_ord_number!(usize);
+impl_partial_ord_number!(i8);
+impl_partial_ord_number!(i16);
+impl_partial_ord_number!(i32);
+impl_partial_ord_number!(i64);
+impl_partial_ord_number!(i128);
+impl_partial_ord_number!(isize);
+impl_partial_ord_number!(f32);
+impl_partial_ord_number!(f64);
+
 impl TryFrom<Any<'_>> for Number {
     type Error = Error;
     fn try_from(value: Any) -> Result<Self, Self::Error> {
@@ -511,22 +665,7 @@ impl TryFrom<Any<'_>> for Number {
     }
 }
 
-macro_rules! number_eq_arm {
-    ($type:ty, $a:ident, $other:ident) => {{
-        match <$type>::MAX.try_into() {
-            Ok(max) => {
-                if *$a > max {
-                    return false;
-                }
-            }
-            Err(_) => return false,
-        }
-
-        *$a == *$other as $type
-    }};
-}
-
-macro_rules! impl_partial_eq_number {
+macro_rules! impl_partial_eq_any {
     ($type:ty) => {
         impl PartialEq<$type> for Any<'_> {
             fn eq(&self, other: &$type) -> bool {
@@ -556,20 +695,20 @@ macro_rules! impl_partial_eq_number {
     };
 }
 
-impl_partial_eq_number!(u8);
-impl_partial_eq_number!(u16);
-impl_partial_eq_number!(u32);
-impl_partial_eq_number!(u64);
-impl_partial_eq_number!(u128);
-impl_partial_eq_number!(usize);
-impl_partial_eq_number!(i8);
-impl_partial_eq_number!(i16);
-impl_partial_eq_number!(i32);
-impl_partial_eq_number!(i64);
-impl_partial_eq_number!(i128);
-impl_partial_eq_number!(isize);
-impl_partial_eq_number!(f32);
-impl_partial_eq_number!(f64);
+impl_partial_eq_any!(u8);
+impl_partial_eq_any!(u16);
+impl_partial_eq_any!(u32);
+impl_partial_eq_any!(u64);
+impl_partial_eq_any!(u128);
+impl_partial_eq_any!(usize);
+impl_partial_eq_any!(i8);
+impl_partial_eq_any!(i16);
+impl_partial_eq_any!(i32);
+impl_partial_eq_any!(i64);
+impl_partial_eq_any!(i128);
+impl_partial_eq_any!(isize);
+impl_partial_eq_any!(f32);
+impl_partial_eq_any!(f64);
 
 impl PartialEq<&str> for Any<'_> {
     fn eq(&self, other: &&str) -> bool {
@@ -716,5 +855,39 @@ mod tests {
         assert!(Any::Str("1") == Any::U8(1));
         assert!(Any::I16(100) == Any::Str("100"));
         assert!(Any::I64(100) == Any::F64(100.0));
+    }
+
+    #[test]
+    fn test_number() {
+        assert!(Number::U8(1) == 1);
+        assert!(Number::U16(1) == 1);
+        assert!(Number::U32(1) == 1);
+        assert!(Number::U64(1) == 1);
+        assert!(Number::U128(1) == 1);
+        assert!(Number::USize(1) == 1);
+        assert!(Number::I8(1) == 1);
+        assert!(Number::I16(1) == 1);
+        assert!(Number::I32(1) == 1);
+        assert!(Number::I64(1) == 1);
+        assert!(Number::I128(1) == 1);
+        assert!(Number::ISize(1) == 1);
+        assert!(Number::F32(1.0) == 1);
+        assert!(Number::F64(1.0) == 1);
+
+        assert!(Number::U8(40) > Number::U32(2));
+        assert!(Number::U128(120000000000000) >= Number::U8(2));
+        // panics because of the conversion I can fix this easily
+        // if rust makes a choice on how to implement try_from for floats
+        // https://internals.rust-lang.org/t/tryfrom-for-f64/9793
+        // but it looks like no one wants to touch that.
+        // assert!(Number::U8(2) <= Number::U128(120000000000000));
+        // I spent a lot of angry brain units on trying to implement this
+        // myself, but alas, my brain units are not powerful enough to
+        // comprehend the rust trait system set up here. I guess.
+    }
+
+    fn test_fuck() {
+        let a: u8 = 1;
+        let _b = <f32>::try_from(a);
     }
 }
