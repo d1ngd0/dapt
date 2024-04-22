@@ -1,4 +1,7 @@
-use std::num::{ParseFloatError, ParseIntError};
+use std::{
+    fmt::Display,
+    num::{ParseFloatError, ParseIntError},
+};
 
 use arrayvec::CapacityError;
 
@@ -39,5 +42,22 @@ impl From<ParseError> for Error {
 impl From<CapacityError> for Error {
     fn from(_: CapacityError) -> Self {
         Error::TooManyPointers
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::TypeMismatch(expected, got) => {
+                write!(f, "Type mismatch: expected {}, got {}", expected, got)
+            }
+            Error::IncorrectSize(got) => write!(f, "Incorrect size: {}", got),
+            Error::InvalidIndex(got) => write!(f, "Invalid index: {}", got),
+            Error::GeneralError(got) => write!(f, "General error: {}", got),
+            Error::NumberConversionFailed(got) => write!(f, "Number conversion failed: {}", got),
+            Error::ParseError(got) => write!(f, "Parse error: {}", got),
+            Error::TooManyPointers => write!(f, "Too many pointers"),
+            Error::NotFound => write!(f, "Not found"),
+        }
     }
 }

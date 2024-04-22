@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display, ops::Deref};
 
 use crate::{Any, Dapt, Number, Path};
 
@@ -17,6 +17,10 @@ const SUB_CONDITION_END: &str = ")";
 const EQUAL: &str = "=";
 const EQUAL_DOUBLE: &str = "==";
 const NOT_EQUAL: &str = "!=";
+const GREATHER_THAN: &str = ">";
+const LESS_THAN: &str = "<";
+const GREATER_THAN_EQUAL: &str = ">=";
+const LESS_THAN_EQUAL: &str = "<=";
 const AND: &str = "AND";
 const OR: &str = "OR";
 const KEY_WRAP: &str = "\"";
@@ -48,13 +52,13 @@ impl<'a> From<&'a str> for Parser<'a> {
 // `age = 10` or `name != "John"` though higher level objects implement
 // this trait as well.
 trait Condition {
-    fn evaluate(&self, d: &Dapt) -> bool;
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool>;
 }
 
 // Expression is a trait that takes in a dapt packet and returns an
 // optional value. This value can be Any type, which is what a dapt packet
 // can return.
-trait Expression {
+trait Expression: std::fmt::Display {
     fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>>;
 }
 
@@ -92,11 +96,11 @@ impl Conjunction {
 }
 
 impl Condition for Conjunction {
-    fn evaluate(&self, d: &Dapt) -> bool {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
         match self {
             Conjunction::Single(c) => c.evaluate(d),
-            Conjunction::And { left, right } => left.evaluate(d) && right.evaluate(d),
-            Conjunction::Or { left, right } => left.evaluate(d) || right.evaluate(d),
+            Conjunction::And { left, right } => Ok(left.evaluate(d)? && right.evaluate(d)?),
+            Conjunction::Or { left, right } => Ok(left.evaluate(d)? || right.evaluate(d)?),
         }
     }
 }
@@ -222,6 +226,62 @@ impl<'a> Parser<'a> {
 
                 Ok(Box::new(NotEqualsCondition { left, right }))
             }
+            GREATHER_THAN => {
+                let right = match self.parse_expression() {
+                    Err(Error::UnexpectedEOF(_)) => {
+                        return Err(Error::with_history(
+                            "equals expects expressions on both sides",
+                            &self.lex,
+                        ))
+                    }
+                    Err(e) => return Err(e),
+                    Ok(r) => r,
+                };
+
+                Ok(Box::new(GreaterThanCondition { left, right }))
+            }
+            GREATER_THAN_EQUAL => {
+                let right = match self.parse_expression() {
+                    Err(Error::UnexpectedEOF(_)) => {
+                        return Err(Error::with_history(
+                            "equals expects expressions on both sides",
+                            &self.lex,
+                        ))
+                    }
+                    Err(e) => return Err(e),
+                    Ok(r) => r,
+                };
+
+                Ok(Box::new(GreaterThanEqualCondition { left, right }))
+            }
+            LESS_THAN => {
+                let right = match self.parse_expression() {
+                    Err(Error::UnexpectedEOF(_)) => {
+                        return Err(Error::with_history(
+                            "equals expects expressions on both sides",
+                            &self.lex,
+                        ))
+                    }
+                    Err(e) => return Err(e),
+                    Ok(r) => r,
+                };
+
+                Ok(Box::new(LessThanCondition { left, right }))
+            }
+            LESS_THAN_EQUAL => {
+                let right = match self.parse_expression() {
+                    Err(Error::UnexpectedEOF(_)) => {
+                        return Err(Error::with_history(
+                            "equals expects expressions on both sides",
+                            &self.lex,
+                        ))
+                    }
+                    Err(e) => return Err(e),
+                    Ok(r) => r,
+                };
+
+                Ok(Box::new(LessThanEqualCondition { left, right }))
+            }
             other => Err(Error::with_history(
                 &format!("expected comparison operator, AND or OR got \"{}\"", other),
                 &self.lex,
@@ -300,7 +360,7 @@ impl<'a> Parser<'a> {
                     }
                 }
 
-                Ok(Box::new(map))
+                Ok(Box::new(MapLiteral(map)))
             }
             ARRAY_WRAP => {
                 let mut arr = Vec::new();
@@ -321,7 +381,7 @@ impl<'a> Parser<'a> {
                     }
                 }
 
-                Ok(Box::new(arr))
+                Ok(Box::new(ArrayLiteral(arr)))
             }
 
             TRUE => Ok(Box::new(BoolExpression { value: true })),
@@ -437,8 +497,8 @@ struct DefaultExpressCondition {
 }
 
 impl Condition for DefaultExpressCondition {
-    fn evaluate(&self, d: &Dapt) -> bool {
-        match self.expr.evaluate(d) {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+        Ok(match self.expr.evaluate(d) {
             Some(Any::Null) => false,
             Some(Any::Bool(b)) => b,
             Some(Any::USize(u)) => u != 0,
@@ -460,7 +520,7 @@ impl Condition for DefaultExpressCondition {
             Some(Any::Map(m)) => !m.is_empty(),
             Some(_) => true,
             None => false,
-        }
+        })
     }
 }
 
@@ -471,11 +531,11 @@ struct ExistsCondition {
 }
 
 impl Condition for ExistsCondition {
-    fn evaluate(&self, d: &Dapt) -> bool {
-        match self.expr.evaluate(d) {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+        Ok(match self.expr.evaluate(d) {
             Some(_) => true,
             None => false,
-        }
+        })
     }
 }
 
@@ -485,10 +545,18 @@ struct EqualsCondition {
 }
 
 impl Condition for EqualsCondition {
-    fn evaluate(&self, d: &Dapt) -> bool {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
         match (self.left.evaluate(d), self.right.evaluate(d)) {
-            (Some(l), Some(r)) => l == r,
-            _ => false,
+            (Some(l), Some(r)) => Ok(l == r),
+            // if only one side doesn't exist we can assume they don't match
+            (Some(_), None) => Ok(false),
+            (None, Some(_)) => Ok(false),
+            // if both sides don't exist this might be an error, so we should not
+            // capture this data
+            (None, None) => Err(Error::NonExistentKey(format!(
+                "both keys {} == {} do not exist",
+                self.left, self.right
+            ))),
         }
     }
 }
@@ -499,11 +567,94 @@ struct NotEqualsCondition {
 }
 
 impl Condition for NotEqualsCondition {
-    fn evaluate(&self, d: &Dapt) -> bool {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
         match (self.left.evaluate(d), self.right.evaluate(d)) {
-            (Some(l), Some(r)) => l != r,
-            _ => false,
+            (Some(l), Some(r)) => Ok(l != r),
+            (Some(_), None) => Ok(true),
+            (None, Some(_)) => Ok(true),
+            (None, None) => Err(Error::NonExistentKey(format!(
+                "both keys {} == {} do not exist",
+                self.left, self.right
+            ))),
         }
+    }
+}
+
+struct GreaterThanCondition {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+// TODO: maybe we should have conditions return a result
+// so we can handle the does not exist condition better.
+impl Condition for GreaterThanCondition {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+        let left = Number::try_from(self.left.evaluate(d).ok_or_else(|| {
+            Error::NonExistentKey(format!("expr {} returned no value", self.left))
+        })?)?;
+
+        let right = Number::try_from(self.right.evaluate(d).ok_or_else(|| {
+            Error::NonExistentKey(format!("expr {} returned no value", self.right))
+        })?)?;
+
+        Ok(left > right)
+    }
+}
+
+struct LessThanCondition {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl Condition for LessThanCondition {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+        let left = Number::try_from(self.left.evaluate(d).ok_or_else(|| {
+            Error::NonExistentKey(format!("expr {} returned no value", self.left))
+        })?)?;
+
+        let right = Number::try_from(self.right.evaluate(d).ok_or_else(|| {
+            Error::NonExistentKey(format!("expr {} returned no value", self.right))
+        })?)?;
+
+        Ok(left < right)
+    }
+}
+
+struct GreaterThanEqualCondition {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl Condition for GreaterThanEqualCondition {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+        let left = Number::try_from(self.left.evaluate(d).ok_or_else(|| {
+            Error::NonExistentKey(format!("expr {} returned no value", self.left))
+        })?)?;
+
+        let right = Number::try_from(self.right.evaluate(d).ok_or_else(|| {
+            Error::NonExistentKey(format!("expr {} returned no value", self.right))
+        })?)?;
+
+        Ok(left >= right)
+    }
+}
+
+struct LessThanEqualCondition {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl Condition for LessThanEqualCondition {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+        let left = Number::try_from(self.left.evaluate(d).ok_or_else(|| {
+            Error::NonExistentKey(format!("expr {} returned no value", self.left))
+        })?)?;
+
+        let right = Number::try_from(self.right.evaluate(d).ok_or_else(|| {
+            Error::NonExistentKey(format!("expr {} returned no value", self.right))
+        })?)?;
+
+        Ok(left <= right)
     }
 }
 
@@ -523,11 +674,23 @@ impl Expression for StringExpression {
     }
 }
 
+impl Display for StringExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "'{}'", self.value)
+    }
+}
+
 struct NullExpression;
 
 impl Expression for NullExpression {
     fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
         Some(Any::Null)
+    }
+}
+
+impl Display for NullExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NULL")
     }
 }
 
@@ -541,13 +704,50 @@ impl Expression for BoolExpression {
     }
 }
 
+impl Display for BoolExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", if self.value { "TRUE" } else { "FALSE" })
+    }
+}
+
 impl Expression for Number {
     fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
         Some(Any::from(*self))
     }
 }
 
-impl Expression for HashMap<String, Box<dyn Expression>> {
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number::USize(u) => write!(f, "{}", u),
+            Number::ISize(i) => write!(f, "{}", i),
+            Number::U128(u) => write!(f, "{}", u),
+            Number::I128(i) => write!(f, "{}", i),
+            Number::U64(u) => write!(f, "{}", u),
+            Number::I64(i) => write!(f, "{}", i),
+            Number::U32(u) => write!(f, "{}", u),
+            Number::I32(i) => write!(f, "{}", i),
+            Number::U16(u) => write!(f, "{}", u),
+            Number::I16(i) => write!(f, "{}", i),
+            Number::U8(u) => write!(f, "{}", u),
+            Number::I8(i) => write!(f, "{}", i),
+            Number::F64(fl) => write!(f, "{}", fl),
+            Number::F32(fl) => write!(f, "{}", fl),
+        }
+    }
+}
+
+struct MapLiteral(HashMap<String, Box<dyn Expression>>);
+
+impl Deref for MapLiteral {
+    type Target = HashMap<String, Box<dyn Expression>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Expression for MapLiteral {
     fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
         let mut map = HashMap::new();
         for (k, v) in self.iter() {
@@ -560,7 +760,27 @@ impl Expression for HashMap<String, Box<dyn Expression>> {
     }
 }
 
-impl Expression for Vec<Box<dyn Expression>> {
+impl Display for MapLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{")?;
+        for (k, v) in self.iter() {
+            write!(f, "'{}': {}, ", k, v)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+struct ArrayLiteral(Vec<Box<dyn Expression>>);
+
+impl Deref for ArrayLiteral {
+    type Target = Vec<Box<dyn Expression>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Expression for ArrayLiteral {
     fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
         let mut arr = Vec::new();
         for v in self.iter() {
@@ -570,6 +790,23 @@ impl Expression for Vec<Box<dyn Expression>> {
         }
 
         Some(Any::Array(arr))
+    }
+}
+
+impl Display for ArrayLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        let mut first = true;
+        for v in self.iter() {
+            if first {
+                first = false;
+            } else {
+                write!(f, ", ")?;
+            }
+
+            write!(f, "{}", v)?;
+        }
+        write!(f, "]")
     }
 }
 
@@ -597,7 +834,7 @@ mod tests {
             let mut parser = Parser::from($expr);
             let expr = parser.parse_condition().unwrap();
             let d: Dapt = serde_json::from_str($source).unwrap();
-            let result = expr.evaluate(&d);
+            let result = expr.evaluate(&d).unwrap();
             assert_eq!(result, $expected);
         };
     }
@@ -613,7 +850,7 @@ mod tests {
             let mut parser = Parser::from($expr);
             let expr = parser.parse_conjunction().unwrap();
             let d: Dapt = serde_json::from_str($source).unwrap();
-            let result = expr.evaluate(&d);
+            let result = expr.evaluate(&d).unwrap();
             assert_eq!(result, $expected);
         };
     }
@@ -662,7 +899,7 @@ mod tests {
         assert_conjunction!(r#"{"a": null}"#, r#" "a" != NULL "#, false);
         // "a" has no value, null is a valid value... not sure what I think about
         // that. Currently you could ` "a" ` alone to test for it's existance
-        assert_conjunction!(r#"{"b": "something"}"#, r#" "a" != NULL "#, false);
+        assert_conjunction!(r#"{"b": "something"}"#, r#" "a" != NULL "#, true);
 
         // test bool
         assert_conjunction!(r#"{"a": true}"#, r#" "a" == true "#, true);
@@ -707,6 +944,18 @@ mod tests {
             r#" "a.*" == ["a.b", "a.c"] "#,
             true
         );
+
+        // Number Operators
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" > 9 "#, true);
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" < 9 "#, false);
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" < 100 "#, true);
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" > 100 "#, false);
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" >= 10 "#, true);
+        assert_conjunction!(r#"{"a": 100}"#, r#" "a" >= 10 "#, true);
+        assert_conjunction!(r#"{"a": 1}"#, r#" "a" >= 10 "#, false);
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" <= 10 "#, true);
+        assert_conjunction!(r#"{"a": 100}"#, r#" "a" <= 10 "#, false);
+        assert_conjunction!(r#"{"a": 1}"#, r#" "a" <= 10 "#, true);
     }
 
     macro_rules! assert_where {
@@ -714,8 +963,20 @@ mod tests {
             let mut parser = Parser::from($expr);
             let expr = parser.parse_where().unwrap();
             let d: Dapt = serde_json::from_str($source).unwrap();
-            let result = expr.condition.evaluate(&d);
+            let result = expr.condition.evaluate(&d).unwrap();
             assert_eq!(result, $expected);
+        };
+    }
+
+    macro_rules! assert_where_error {
+        ( $source:expr, $expr:expr, $expected:expr) => {
+            let mut parser = Parser::from($expr);
+            let expr = parser.parse_where().unwrap();
+            let d: Dapt = serde_json::from_str($source).unwrap();
+            match expr.condition.evaluate(&d) {
+                Ok(_) => panic!("expected error"),
+                Err(e) => assert_eq!(e.to_string(), $expected),
+            }
         };
     }
 
@@ -731,6 +992,8 @@ mod tests {
             true
         );
 
+        // wait shouldn't this be an error. Well, I guess not, because the OR is
+        // never evaluated because the left side is true.
         assert_where!(
             r#"{
                 "a": 10,
@@ -739,6 +1002,26 @@ mod tests {
             }"#,
             r#"WHERE "a" != "b" AND ("a" == "c" OR "nope" == "nothere") "#,
             true
+        );
+
+        assert_where_error!(
+            r#"{
+                "a": 10,
+                "b": 9,
+                "c": 10.0
+            }"#,
+            r#"WHERE "non_existant" == "other_nonexistant" "#,
+            "Non existent key: both keys non_existant == other_nonexistant do not exist"
+        );
+
+        assert_where_error!(
+            r#"{
+                "a": 10,
+                "b": 9,
+                "c": 10.0
+            }"#,
+            r#"WHERE "a" != "b" AND ("nope" == "nothere" OR "a" == "c") "#,
+            "Non existent key: both keys nope == nothere do not exist"
         );
     }
 }

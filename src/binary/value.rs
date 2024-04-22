@@ -293,6 +293,8 @@ impl Number {
 
 macro_rules! impl_number_into {
     ($type:ty) => {
+        // TODO: These are not implicitly safe, and we should handle them
+        // in a better way.
         impl From<Number> for $type {
             fn from(orig: Number) -> Self {
                 match orig {
