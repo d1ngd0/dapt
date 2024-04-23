@@ -1,4 +1,4 @@
-use dapt::{Dapt, Path};
+use dapt::{query::WhereClause, Dapt, Path};
 
 #[test]
 fn test_deserialize() {
@@ -114,4 +114,37 @@ fn test_path() {
 
     let p = Path::try_from("a.{invalid|path}");
     assert!(p.is_err());
+}
+
+#[test]
+fn test_filter() {
+    let data = r#"
+            {
+                "a": 1,
+                "b": "hello",
+                "c": [1, 2, 3],
+                "d": {
+                    "e": 1000,
+                    "f": "world",
+                    "deep": {
+                        "deeper": {
+                            "deepest": "hello"
+                        }
+                    }
+                },
+                "empty_array": [],
+                "empty_object": {}
+            }
+        "#;
+
+    let d: Dapt = serde_json::from_str(data).unwrap();
+
+    let f = WhereClause::new("WHERE \"~.deepest\" == 'hello'").unwrap();
+    assert_eq!(f.filter(&d).unwrap(), true);
+
+    // c[1] == 2
+    let f =
+        WhereClause::new("WHERE add(\"c[1]\", 4) > 5 AND \"d.*.deeper\" == {'deepest': 'hello'}")
+            .unwrap();
+    assert_eq!(f.filter(&d).unwrap(), true);
 }
