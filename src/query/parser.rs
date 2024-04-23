@@ -17,7 +17,8 @@ const SUB_CONDITION_END: &str = ")";
 const EQUAL: &str = "=";
 const EQUAL_DOUBLE: &str = "==";
 const NOT_EQUAL: &str = "!=";
-const GREATHER_THAN: &str = ">";
+const IN: &str = "IN";
+const GREATER_THAN: &str = ">";
 const LESS_THAN: &str = "<";
 const GREATER_THAN_EQUAL: &str = ">=";
 const LESS_THAN_EQUAL: &str = "<=";
@@ -218,12 +219,12 @@ impl<'a> Parser<'a> {
         };
 
         let tok = self.lex.token().unwrap();
-        match tok {
+        match tok.to_uppercase().as_str() {
             EQUAL | EQUAL_DOUBLE => {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
-                            "equals expects expressions on both sides",
+                            format!("{EQUAL} expects expressions on both sides").as_str(),
                             &self.lex,
                         ))
                     }
@@ -237,7 +238,7 @@ impl<'a> Parser<'a> {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
-                            "equals expects expressions on both sides",
+                            format!("{NOT_EQUAL} expects expressions on both sides").as_str(),
                             &self.lex,
                         ))
                     }
@@ -247,11 +248,11 @@ impl<'a> Parser<'a> {
 
                 Ok(Box::new(NotEqualsCondition { left, right }))
             }
-            GREATHER_THAN => {
+            GREATER_THAN => {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
-                            "equals expects expressions on both sides",
+                            format!("{GREATER_THAN} expects expressions on both sides").as_str(),
                             &self.lex,
                         ))
                     }
@@ -265,7 +266,8 @@ impl<'a> Parser<'a> {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
-                            "equals expects expressions on both sides",
+                            format!("{GREATER_THAN_EQUAL} expects expressions on both sides")
+                                .as_str(),
                             &self.lex,
                         ))
                     }
@@ -293,7 +295,7 @@ impl<'a> Parser<'a> {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
-                            "equals expects expressions on both sides",
+                            format!("{LESS_THAN_EQUAL} expects expressions on both sides").as_str(),
                             &self.lex,
                         ))
                     }
@@ -302,6 +304,20 @@ impl<'a> Parser<'a> {
                 };
 
                 Ok(Box::new(LessThanEqualCondition { left, right }))
+            }
+            IN => {
+                let right = match self.parse_expression() {
+                    Err(Error::UnexpectedEOF(_)) => {
+                        return Err(Error::with_history(
+                            format!("{IN} expects expressions on both sides").as_str(),
+                            &self.lex,
+                        ))
+                    }
+                    Err(e) => return Err(e),
+                    Ok(r) => r,
+                };
+
+                Ok(Box::new(InCondition { left, right }))
             }
             other => Err(Error::with_history(
                 &format!("expected comparison operator, AND or OR got \"{}\"", other),
@@ -631,6 +647,43 @@ impl Condition for ExistsCondition {
             Some(_) => true,
             None => false,
         })
+    }
+}
+
+// InCondition will check if the left expression is in the right expression. If the
+// right expression is not a map or array this functions the same as EqualsCondition
+struct InCondition {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl Condition for InCondition {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+        let left = self.left.evaluate(d);
+        let right = self.right.evaluate(d);
+
+        match (left, right) {
+            (Some(l), Some(r)) => match r {
+                Any::Array(arr) => Ok(arr.contains(&l)),
+                Any::Map(map) => Ok({
+                    let mut found = false;
+                    for v in map.values() {
+                        if *v == l {
+                            found = true;
+                            break;
+                        }
+                    }
+                    found
+                }),
+                _ => Ok(l == r),
+            },
+            (Some(_), None) => Ok(false),
+            (None, Some(_)) => Ok(false),
+            (None, None) => Err(Error::NonExistentKey(format!(
+                "both keys {} == {} do not exist",
+                self.left, self.right
+            ))),
+        }
     }
 }
 
@@ -1056,6 +1109,31 @@ mod tests {
         assert_conjunction!(r#"{"a": 10}"#, r#" "a" <= 10 "#, true);
         assert_conjunction!(r#"{"a": 100}"#, r#" "a" <= 10 "#, false);
         assert_conjunction!(r#"{"a": 1}"#, r#" "a" <= 10 "#, true);
+
+        // in
+        assert_conjunction!(r#"{"a": 10}"#, r#" "a" IN [1,2,3,4,5,6,7,8,9,10] "#, true);
+        // here we are showing how in can be used to find an object in an array
+        // also we are using a as the right side since it has the set
+        assert_conjunction!(
+            r#"{"a": [{"a": 1}, {"b": 2}, {"c": 11}]}"#,
+            r#" {'c':11} in "a" "#,
+            true
+        );
+        // we can use in on a map as well, making it easy to look for a child if you don't
+        // know the name
+        assert_conjunction!(
+            r#"{"a": {"a":{"a": 1}, "b":{"b": 2}, "c":{"c": 11}}}"#,
+            r#" {'c':12} in "a" "#,
+            true
+        );
+
+        // finally in is very helpful when we don't know how many things our key matches
+        // but we want to evaluate to true if one of them matches
+        assert_conjunction!(
+            r#"{"a": {"a": 1, "b": 2, "c": 3}}"#,
+            r#" 2 in "a.*" "#,
+            true
+        );
     }
 
     macro_rules! assert_where {
