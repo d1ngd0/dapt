@@ -973,9 +973,4 @@ mod tests {
         assert_eq!(Number::U128(1200) / 2, Number::U128(600));
         assert_eq!(Number::U128(1200) % 2, Number::U128(0));
     }
-
-    fn test_fuck() {
-        let a: u8 = 1;
-        let _b = <f32>::try_from(a);
-    }
 }

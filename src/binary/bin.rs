@@ -40,6 +40,8 @@ const PTR_OFFSET_END: usize = PTR_OFFSET + PTR_WIDTH;
 
 const ADD_TOKEN_HEADER_LENGTH: usize = CONTENT_OFFSET;
 
+const INITAL_BINARY_SIZE: usize = 1024;
+
 #[derive(Debug, Clone)]
 pub struct Binary(Vec<u8>);
 
@@ -122,7 +124,10 @@ impl Binary {
 impl Default for Binary {
     fn default() -> Self {
         // create default with a breference to help define the root token.
-        Binary(vec![TYPE_REFERENCE, 0x0, 0x0, 0x0, 0x0])
+        let mut b = Vec::with_capacity(INITAL_BINARY_SIZE);
+        b.push(TYPE_REFERENCE);
+        b.resize(INITAL_BINARY_SIZE, 0);
+        Binary(b)
     }
 }
 
