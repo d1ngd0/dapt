@@ -13,6 +13,11 @@ const TOKEN_COMMA: char = ',';
 const TOKEN_COLON: char = ':';
 const TOKEN_SQUARE_OPEN: char = '[';
 const TOKEN_SQUARE_CLOSE: char = ']';
+const TOKEN_PLUS: char = '+';
+const TOKEN_MINUS: char = '-';
+const TOKEN_DIVIDE: char = '/';
+const TOKEN_MULTIPLY: char = '*';
+const TOKEN_MODULUS: char = '%';
 
 pub struct Lexer<'a> {
     path: &'a str,
@@ -133,7 +138,12 @@ impl<'a> Lexer<'a> {
                 | TOKEN_COMMA
                 | TOKEN_COLON
                 | TOKEN_SQUARE_OPEN
-                | TOKEN_SQUARE_CLOSE => {
+                | TOKEN_SQUARE_CLOSE
+                | TOKEN_PLUS
+                | TOKEN_MINUS
+                | TOKEN_DIVIDE
+                | TOKEN_MULTIPLY
+                | TOKEN_MODULUS => {
                     // if the previous token was an escape token, we just want to add this to the
                     // existing token
                     if escape_next || escape_all {

@@ -1,4 +1,9 @@
-use std::{cmp::Ordering, collections::HashMap, mem};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    mem,
+    ops::{Add, Div, Mul, Rem, Sub},
+};
 
 use crate::{
     binary::Binary,
@@ -635,6 +640,81 @@ impl_partial_ord_number!(isize);
 impl_partial_ord_number!(f32);
 impl_partial_ord_number!(f64);
 
+macro_rules! impl_math_op_type {
+    ($type:ty, $name:ident, $fn:ident, $op:tt) => {
+        impl $name<$type> for Number {
+            type Output = Number;
+
+            fn $fn(self, other: $type) -> Self::Output {
+                match self {
+                    Number::U8(a) => Number::U8(a $op other as u8),
+                    Number::U16(a) => Number::U16(a $op other as u16),
+                    Number::U32(a) => Number::U32(a $op other as u32),
+                    Number::U64(a) => Number::U64(a $op other as u64),
+                    Number::U128(a) => Number::U128(a $op other as u128),
+                    Number::USize(a) => Number::USize(a $op other as usize),
+                    Number::I8(a) => Number::I8(a $op other as i8),
+                    Number::I16(a) => Number::I16(a $op other as i16),
+                    Number::I32(a) => Number::I32(a $op other as i32),
+                    Number::I64(a) => Number::I64(a $op other as i64),
+                    Number::I128(a) => Number::I128(a $op other as i128),
+                    Number::ISize(a) => Number::ISize(a $op other as isize),
+                    Number::F32(a) => Number::F32(a $op other as f32),
+                    Number::F64(a) => Number::F64(a $op other as f64),
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_math_number {
+    ($name:ident, $fn:ident, $op:tt) => {
+        impl_math_op_type!(u8, $name, $fn, $op);
+        impl_math_op_type!(u16, $name, $fn, $op);
+        impl_math_op_type!(u32, $name, $fn, $op);
+        impl_math_op_type!(u64, $name, $fn, $op);
+        impl_math_op_type!(u128, $name, $fn, $op);
+        impl_math_op_type!(usize, $name, $fn, $op);
+        impl_math_op_type!(i8, $name, $fn, $op);
+        impl_math_op_type!(i16, $name, $fn, $op);
+        impl_math_op_type!(i32, $name, $fn, $op);
+        impl_math_op_type!(i64, $name, $fn, $op);
+        impl_math_op_type!(i128, $name, $fn, $op);
+        impl_math_op_type!(isize, $name, $fn, $op);
+        impl_math_op_type!(f32, $name, $fn, $op);
+        impl_math_op_type!(f64, $name, $fn, $op);
+
+        impl $name<Number> for Number {
+            type Output = Number;
+
+            fn $fn(self, other: Number) -> Self::Output {
+                match other {
+                    Number::U8(a) => self $op a,
+                    Number::U16(a) => self $op a,
+                    Number::U32(a) => self $op a,
+                    Number::U64(a) => self $op a,
+                    Number::U128(a) => self $op a,
+                    Number::USize(a) => self $op a,
+                    Number::I8(a) => self $op a,
+                    Number::I16(a) => self $op a,
+                    Number::I32(a) => self $op a,
+                    Number::I64(a) => self $op a,
+                    Number::I128(a) => self $op a,
+                    Number::ISize(a) => self $op a,
+                    Number::F32(a) => self $op a,
+                    Number::F64(a) => self $op a,
+                }
+            }
+        }
+    };
+}
+
+impl_math_number!(Add, add, +);
+impl_math_number!(Sub, sub, -);
+impl_math_number!(Mul, mul, *);
+impl_math_number!(Div, div, /);
+impl_math_number!(Rem, rem, %);
+
 impl TryFrom<Any<'_>> for Number {
     type Error = Error;
     fn try_from(value: Any) -> Result<Self, Self::Error> {
@@ -886,6 +966,12 @@ mod tests {
         // I spent a lot of angry brain units on trying to implement this
         // myself, but alas, my brain units are not powerful enough to
         // comprehend the rust trait system set up here. I guess.
+
+        assert_eq!(Number::U128(1200) + 1, Number::U128(1201));
+        assert_eq!(Number::U128(1200) - 1, Number::U128(1199));
+        assert_eq!(Number::U128(1200) * 2, Number::U128(2400));
+        assert_eq!(Number::U128(1200) / 2, Number::U128(600));
+        assert_eq!(Number::U128(1200) % 2, Number::U128(0));
     }
 
     fn test_fuck() {

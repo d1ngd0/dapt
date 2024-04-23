@@ -36,6 +36,16 @@ const ARRAY_WRAP: &str = "[";
 const ARRAY_WRAP_END: &str = "]";
 const ARRAY_CHILD_SEP: &str = ",";
 
+const FN_OPEN: &str = "(";
+const FN_CLOSE: &str = ")";
+const FN_SEP: &str = ",";
+
+const FN_ADD: &str = "ADD";
+const FN_MINUS: &str = "NEG";
+const FN_MULTIPLY: &str = "MUL";
+const FN_DIVIDE: &str = "DIV";
+const FN_MODULUS: &str = "MOD";
+
 struct Parser<'a> {
     lex: Lexer<'a>,
 }
@@ -289,7 +299,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_expression(&mut self) -> QueryResult<Box<dyn Expression>> {
+    fn parse_expression(&mut self) -> QueryResult<Box<dyn Expression>> {
         let left = self
             .lex
             .token()
@@ -383,7 +393,51 @@ impl<'a> Parser<'a> {
 
                 Ok(Box::new(ArrayLiteral(arr)))
             }
+            FN_ADD => {
+                self.consume_token(FN_OPEN)?;
+                let left = self.parse_expression()?;
+                self.consume_token(FN_SEP)?;
+                let right = self.parse_expression()?;
+                self.consume_token(FN_CLOSE)?;
 
+                Ok(Box::new(AddExpression { left, right }))
+            }
+            FN_MINUS => {
+                self.consume_token(FN_OPEN)?;
+                let left = self.parse_expression()?;
+                self.consume_token(FN_SEP)?;
+                let right = self.parse_expression()?;
+                self.consume_token(FN_CLOSE)?;
+
+                Ok(Box::new(SubtractExpression { left, right }))
+            }
+            FN_MULTIPLY => {
+                self.consume_token(FN_OPEN)?;
+                let left = self.parse_expression()?;
+                self.consume_token(FN_SEP)?;
+                let right = self.parse_expression()?;
+                self.consume_token(FN_CLOSE)?;
+
+                Ok(Box::new(MultiplyExpression { left, right }))
+            }
+            FN_DIVIDE => {
+                self.consume_token(FN_OPEN)?;
+                let left = self.parse_expression()?;
+                self.consume_token(FN_SEP)?;
+                let right = self.parse_expression()?;
+                self.consume_token(FN_CLOSE)?;
+
+                Ok(Box::new(DivideExpression { left, right }))
+            }
+            FN_MODULUS => {
+                self.consume_token(FN_OPEN)?;
+                let left = self.parse_expression()?;
+                self.consume_token(FN_SEP)?;
+                let right = self.parse_expression()?;
+                self.consume_token(FN_CLOSE)?;
+
+                Ok(Box::new(ModulusExpression { left, right }))
+            }
             TRUE => Ok(Box::new(BoolExpression { value: true })),
             FALSE => Ok(Box::new(BoolExpression { value: false })),
             NULL => Ok(Box::new(NullExpression)),
@@ -495,6 +549,36 @@ impl<'a> Parser<'a> {
 struct DefaultExpressCondition {
     expr: Box<dyn Expression>,
 }
+
+macro_rules! impl_math_op {
+    ($name:ident, $op:tt) => {
+        struct $name {
+            left: Box<dyn Expression>,
+            right: Box<dyn Expression>,
+        }
+
+        impl Expression for $name {
+            fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
+                let left = Number::try_from(self.left.evaluate(d)?).ok()?;
+                let right = Number::try_from(self.right.evaluate(d)?).ok()?;
+
+                Some(Any::from(left $op right))
+            }
+        }
+
+        impl Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{} {} {}", self.left, stringify!($op), self.right)
+            }
+        }
+    };
+}
+
+impl_math_op!(ModulusExpression, %);
+impl_math_op!(DivideExpression, /);
+impl_math_op!(MultiplyExpression, *);
+impl_math_op!(AddExpression, +);
+impl_math_op!(SubtractExpression, -);
 
 impl Condition for DefaultExpressCondition {
     fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
@@ -827,6 +911,11 @@ mod tests {
     #[test]
     fn test_expression() {
         assert_expression!(r#"{"a": 10}"#, "\"a\"", Any::U64(10));
+        assert_expression!(r#"{"a": 10}"#, "add(\"a\", 10)", Any::U64(20));
+        assert_expression!(r#"{"a": 10}"#, "neg(\"a\", 10)", Any::U64(0));
+        assert_expression!(r#"{"a": 10}"#, "mul(\"a\", 10)", Any::U64(100));
+        assert_expression!(r#"{"a": 10}"#, "div(\"a\", 5)", Any::U64(2));
+        assert_expression!(r#"{"a": 10}"#, "mod(\"a\", 4)", Any::USize(2));
     }
 
     macro_rules! assert_condition {
