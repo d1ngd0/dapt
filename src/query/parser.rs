@@ -115,8 +115,19 @@ impl Condition for Conjunction {
     }
 }
 
-struct WhereClause {
+pub struct WhereClause {
     condition: Conjunction,
+}
+
+impl WhereClause {
+    pub fn new(str: &str) -> QueryResult<WhereClause> {
+        let mut parser = Parser::from(str);
+        parser.parse_where()
+    }
+
+    pub fn filter(&self, d: &Dapt) -> QueryResult<bool> {
+        self.condition.evaluate(d)
+    }
 }
 
 impl<'a> Parser<'a> {

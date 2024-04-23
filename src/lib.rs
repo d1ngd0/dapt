@@ -11,7 +11,7 @@ use serde::Deserializer;
 mod binary;
 mod error;
 mod path;
-mod query;
+pub mod query;
 
 pub use binary::Any;
 pub use binary::Deserialize;
