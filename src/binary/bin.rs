@@ -126,7 +126,7 @@ impl Default for Binary {
         // create default with a breference to help define the root token.
         let mut b = Vec::with_capacity(INITAL_BINARY_SIZE);
         b.push(TYPE_REFERENCE);
-        b.resize(INITAL_BINARY_SIZE, 0);
+        b.resize(REFERENCE_LENGTH, 0);
         Binary(b)
     }
 }
