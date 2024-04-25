@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, ops::Deref};
 
-use crate::{Any, Dapt, Number, Path};
+use crate::{binary::OwnedAny, Any, Dapt, Number, Path};
 
 use super::{
     error::{Error, QueryResult},
@@ -8,6 +8,8 @@ use super::{
 };
 
 const SELECT: &str = "SELECT";
+const SELECT_SEP: &str = ",";
+const SELECT_ALIAS: &str = "AS";
 const FROM: &str = "FROM";
 const WHERE: &str = "WHERE";
 const HAVING: &str = "HAVING";
@@ -47,6 +49,9 @@ const FN_MULTIPLY: &str = "MUL";
 const FN_DIVIDE: &str = "DIV";
 const FN_MODULUS: &str = "MOD";
 
+const AGGREGATION_SUM: &str = "SUM";
+const AGGREGATION_COUNT: &str = "COUNT";
+
 struct Parser<'a> {
     lex: Lexer<'a>,
 }
@@ -57,6 +62,55 @@ impl<'a> From<&'a str> for Parser<'a> {
             lex: Lexer::from(s),
         }
     }
+}
+
+struct Column {
+    agg: Box<dyn Aggregation>,
+    alias: Option<String>,
+}
+
+// SELECT takes both expressions and aggregations. Any expressions will be wrapped
+// in an ExpressionAggregation which will grab the first value expressed and then
+// return OK from then on. If your query is a transformation, or in other words, only
+// expressions, you should call collect on each call to process. If your query is an
+// aggregation you can call process whenever you want the calculation to be done.
+// Many aggregations are set back to 0 or the default value after process is called.
+// so you can continue to use Select after collect is called.
+pub struct Select {
+    fields: Vec<Column>,
+}
+
+impl Select {
+    pub fn new(str: &str) -> QueryResult<Select> {
+        let mut parser = Parser::from(str);
+        parser.parse_select()
+    }
+
+    pub fn process(&mut self, d: &Dapt) -> QueryResult<()> {
+        for col in self.fields.iter_mut() {
+            col.agg.process(d)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn collect(&self) -> QueryResult<Dapt> {
+        // TODO: we have to add the ability to put values into a dapt
+        // packet through macros. Also need to do Any value to dapt
+        todo!()
+    }
+}
+
+// an aggregation taks multiple dapt packets through process
+// and returns the defined aggregation result as an Any type.
+trait Aggregation: std::fmt::Display {
+    // process can be called multiple times
+    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()>;
+
+    // result returns the aggregation result, were applicable, we should
+    // return NotFound, which is handled by select by not adding the column
+    // to the final result.
+    fn result<'a>(&'a self) -> QueryResult<Any<'a>>;
 }
 
 // Condition is a trait that defines a where clause condition, such as
@@ -132,6 +186,56 @@ impl WhereClause {
 }
 
 impl<'a> Parser<'a> {
+    pub fn parse_select(&mut self) -> QueryResult<Select> {
+        self.consume_token(SELECT)?;
+
+        let mut fields = Vec::new();
+        loop {
+            fields.push(self.parse_column()?);
+            // peak at the next token to see what we should do
+            match self.lex.peak() {
+                Some(FROM) => break,
+                Some(WHERE) => break,
+                Some(SELECT_SEP) => self.consume_token(SELECT_SEP)?,
+                None => break,
+                Some(tok) => {
+                    return Err(Error::with_history(
+                        &format!("expecting {SELECT_SEP} or end of select but found {tok}"),
+                        &self.lex,
+                    ))
+                }
+            }
+        }
+
+        Ok(Select { fields })
+    }
+
+    pub fn parse_column(&mut self) -> QueryResult<Column> {
+        let agg = self.parse_aggregation()?;
+        let alias = match self.lex.peak() {
+            Some(SELECT_ALIAS) => {
+                self.consume_token(SELECT_ALIAS)?;
+                Some(self.parse_string(KEY_WRAP)?)
+            }
+            _ => None,
+        };
+
+        Ok(Column { agg, alias })
+    }
+
+    pub fn parse_aggregation(&mut self) -> QueryResult<Box<dyn Aggregation>> {
+        let tok = self
+            .lex
+            .peak()
+            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+
+        match tok.to_uppercase().as_str() {
+            AGGREGATION_SUM => Ok(Box::new(SumAggregation::from_parser(self)?)),
+            AGGREGATION_COUNT => Ok(Box::new(CountAggregation::from_parser(self)?)),
+            _ => Ok(Box::new(ExpressionAggregation::from_parser(self)?)),
+        }
+    }
+
     pub fn parse_where(&mut self) -> QueryResult<WhereClause> {
         let tok = self
             .lex
@@ -376,7 +480,7 @@ impl<'a> Parser<'a> {
                 let mut map = HashMap::new();
                 loop {
                     // pase 'key': <expression>
-                    let key = self.parse_string()?;
+                    let key = self.parse_string(KEY_WRAP)?;
                     self.consume_token(MAP_CHILD_SET)?;
                     let value = self.parse_expression()?;
 
@@ -512,12 +616,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_string(&mut self) -> QueryResult<String> {
+    fn parse_string(&mut self, wrap: &str) -> QueryResult<String> {
         match self.lex.token() {
-            Some(STRING_WRAP) => (),
+            Some(val) if val == wrap => (),
             Some(tok) => {
                 return Err(Error::with_history(
-                    &format!("expected {STRING_WRAP} but got {tok}"),
+                    &format!("expected {wrap} but got {tok}"),
                     &self.lex,
                 ))
             }
@@ -532,9 +636,9 @@ impl<'a> Parser<'a> {
         // consume the final " token, and return. If we get a different token
         // or hit EOF we can return an error
         match self.lex.token() {
-            Some(STRING_WRAP) => Ok(value.to_string()),
+            Some(val) if val == wrap => Ok(value.to_string()),
             Some(tok) => Err(Error::with_history(
-                &format!("expected {STRING_WRAP} but got {tok}"),
+                &format!("expected {wrap} but got {tok}"),
                 &self.lex,
             )),
             None => Err(Error::unexpected_eof(&self.lex)),
@@ -543,7 +647,7 @@ impl<'a> Parser<'a> {
 
     fn consume_token(&mut self, expected: &str) -> QueryResult<()> {
         match self.lex.token() {
-            Some(tok) if tok == expected => Ok(()),
+            Some(tok) if tok.to_uppercase() == expected => Ok(()),
             Some(tok) => Err(Error::with_history(
                 &format!("expected {} but got {}", expected, tok),
                 &self.lex,
@@ -958,6 +1062,164 @@ impl Display for ArrayLiteral {
     }
 }
 
+struct SumAggregation {
+    value: Box<dyn Expression>,
+    sum: Number,
+}
+
+impl SumAggregation {
+    fn from_parser(parser: &mut Parser) -> QueryResult<SumAggregation> {
+        parser.consume_token(AGGREGATION_SUM)?;
+        parser.consume_token(FN_OPEN)?;
+        let value = parser.parse_expression()?;
+        parser.consume_token(FN_CLOSE)?;
+
+        Ok(SumAggregation {
+            value,
+            sum: Number::USize(0),
+        })
+    }
+}
+
+// SumAggregation will sum the values of the expression, if the expression
+// returns an array, each item in the array is sumed. If the expression
+// returns non numeric types they are ignored without error.
+impl Aggregation for SumAggregation {
+    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
+        let expr_val = self.value.evaluate(d);
+        let val = match &expr_val {
+            Some(v) => v,
+            None => return Ok(()),
+        };
+
+        match val {
+            Any::Array(a) => {
+                for v in a {
+                    match Number::try_from(v) {
+                        Ok(n) => self.sum = self.sum + n,
+                        Err(_) => (),
+                    }
+                }
+            }
+            _ => match Number::try_from(val) {
+                Ok(n) => self.sum = self.sum + n,
+                Err(_) => (),
+            },
+        }
+        Ok(())
+    }
+
+    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
+        Ok(self.sum.into())
+    }
+}
+
+impl Display for SumAggregation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{AGGREGATION_SUM}({})", self.value)
+    }
+}
+
+// count aggregation will count the number of times an expression has a value
+// if no argument is given to count it will just count the number of lines
+struct CountAggregation {
+    expr: Option<Box<dyn Expression>>,
+    count: usize,
+}
+
+impl CountAggregation {
+    fn from_parser(parser: &mut Parser) -> QueryResult<CountAggregation> {
+        parser.consume_token(AGGREGATION_COUNT)?;
+        parser.consume_token(FN_OPEN)?;
+
+        let expr = match parser.lex.peak() {
+            Some(FN_CLOSE) => None,
+            _ => Some(parser.parse_expression()?),
+        };
+
+        parser.consume_token(FN_CLOSE)?;
+
+        Ok(CountAggregation { expr, count: 0 })
+    }
+}
+
+impl Display for CountAggregation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.expr {
+            Some(e) => write!(f, "{AGGREGATION_COUNT}({})", e),
+            None => write!(f, "{AGGREGATION_COUNT}"),
+        }
+    }
+}
+
+impl Aggregation for CountAggregation {
+    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
+        match &self.expr {
+            Some(e) => {
+                if e.evaluate(d).is_some() {
+                    self.count += 1;
+                }
+            }
+            None => self.count += 1,
+        }
+
+        Ok(())
+    }
+
+    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
+        Ok(Any::USize(self.count))
+    }
+}
+
+struct ExpressionAggregation {
+    expr: Box<dyn Expression>,
+    value: Option<OwnedAny>,
+}
+
+impl ExpressionAggregation {
+    fn new(expr: Box<dyn Expression>) -> Self {
+        Self { expr, value: None }
+    }
+
+    fn from_parser(parser: &mut Parser) -> QueryResult<ExpressionAggregation> {
+        let expr = parser.parse_expression()?;
+        Ok(ExpressionAggregation::new(expr))
+    }
+}
+
+impl Aggregation for ExpressionAggregation {
+    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
+        // just take the first value, that way we can avoid all the
+        // heap allocations for each value we process.
+        if self.value.is_some() {
+            return Ok(());
+        }
+
+        self.value = match self.expr.evaluate(d) {
+            // the value here will likely outlive the dapt packet
+            // it came from, so we clone.
+            Some(v) => Some(v.into()),
+            None => return Ok(()),
+        };
+
+        Ok(())
+    }
+
+    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
+        if self.value.is_none() {
+            return Err(Error::NotFound);
+        }
+
+        Ok(self.value.as_ref().unwrap().into())
+    }
+}
+
+impl Display for ExpressionAggregation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.expr)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1068,13 +1330,13 @@ mod tests {
         // test map
         assert_conjunction!(
             r#"{"a": {"b": 10, "c": 20}}"#,
-            r#" "a" == {'b': 10, 'c': 20} "#,
+            r#" "a" == {"b": 10, "c": 20} "#,
             true
         );
 
         assert_conjunction!(
             r#"{"a": {"b": {"c": 20}}}"#,
-            r#" "a" == {'b': {'c': 20}} "#,
+            r#" "a" == {"b": {"c": 20}} "#,
             true
         );
 
@@ -1116,14 +1378,14 @@ mod tests {
         // also we are using a as the right side since it has the set
         assert_conjunction!(
             r#"{"a": [{"a": 1}, {"b": 2}, {"c": 11}]}"#,
-            r#" {'c':11} in "a" "#,
+            r#" {"c":11} in "a" "#,
             true
         );
         // we can use in on a map as well, making it easy to look for a child if you don't
         // know the name
         assert_conjunction!(
             r#"{"a": {"a":{"a": 1}, "b":{"b": 2}, "c":{"c": 11}}}"#,
-            r#" {'c':12} in "a" "#,
+            r#" {"c":12} in "a" "#,
             true
         );
 
@@ -1200,6 +1462,63 @@ mod tests {
             }"#,
             r#"WHERE "a" != "b" AND ("nope" == "nothere" OR "a" == "c") "#,
             "Non existent key: both keys nope == nothere do not exist"
+        );
+    }
+
+    macro_rules! assert_aggregation {
+        ( $expr:expr, $expected:expr, $($source:expr),+) => {
+            let mut parser = Parser::from($expr);
+            let mut expr = parser.parse_aggregation().unwrap();
+            let sources = vec![$(serde_json::from_str($source).unwrap()),+];
+            for d in sources {
+                expr.process(&d).unwrap();
+            }
+            let result = expr.result().unwrap();
+            assert_eq!(result, $expected);
+        };
+    }
+
+    #[test]
+    fn test_aggregation() {
+        assert_aggregation!(
+            r#"SUM("a")"#,
+            Any::USize(6),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        assert_aggregation!(
+            r#"count()"#,
+            Any::USize(3),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        assert_aggregation!(
+            r#"count("c")"#,
+            Any::USize(1),
+            r#"{"a": 1}"#,
+            r#"{"b": 2}"#,
+            r#"{"c": 3}"#
+        );
+
+        assert_aggregation!(
+            r#""a""#,
+            Any::USize(1),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        // literal, just to prove it can be done
+        assert_aggregation!(
+            r#"10"#,
+            Any::USize(10),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
         );
     }
 }

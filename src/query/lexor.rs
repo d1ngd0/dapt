@@ -43,6 +43,14 @@ impl<'a> Lexer<'a> {
         &self.path[..self.head]
     }
 
+    pub fn where_is(&self) -> usize {
+        self.head
+    }
+
+    pub fn set_where(&mut self, where_is: usize) {
+        self.head = where_is;
+    }
+
     // token returns the next token in the path. When there are no more tokens
     // it returns None. All tokens returns are references to the original string
     // meaning all escape characters are still present.

@@ -363,6 +363,112 @@ pub enum Any<'a> {
     Null,
 }
 
+// while this works I kinda hate it, is this idomatic or is there a better way to do
+// this?
+pub enum OwnedAny {
+    USize(usize),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    ISize(isize),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    I128(i128),
+    F32(f32),
+    F64(f64),
+    Str(String),
+    Bytes(Vec<u8>),
+    Char(char),
+    Bool(bool),
+    Array(Vec<OwnedAny>),
+    Map(HashMap<String, OwnedAny>),
+    Null,
+}
+
+impl From<Any<'_>> for OwnedAny {
+    fn from(value: Any) -> Self {
+        match value {
+            Any::USize(val) => OwnedAny::USize(val),
+            Any::U8(val) => OwnedAny::U8(val),
+            Any::U16(val) => OwnedAny::U16(val),
+            Any::U32(val) => OwnedAny::U32(val),
+            Any::U64(val) => OwnedAny::U64(val),
+            Any::U128(val) => OwnedAny::U128(val),
+            Any::ISize(val) => OwnedAny::ISize(val),
+            Any::I8(val) => OwnedAny::I8(val),
+            Any::I16(val) => OwnedAny::I16(val),
+            Any::I32(val) => OwnedAny::I32(val),
+            Any::I64(val) => OwnedAny::I64(val),
+            Any::I128(val) => OwnedAny::I128(val),
+            Any::F32(val) => OwnedAny::F32(val),
+            Any::F64(val) => OwnedAny::F64(val),
+            Any::Str(val) => OwnedAny::Str(val.to_string()),
+            Any::Bytes(val) => OwnedAny::Bytes(val.to_vec()),
+            Any::Char(val) => OwnedAny::Char(val),
+            Any::Bool(val) => OwnedAny::Bool(val),
+            Any::Array(val) => {
+                let mut items = Vec::with_capacity(val.len());
+                for item in val {
+                    items.push(OwnedAny::from(item));
+                }
+                OwnedAny::Array(items)
+            }
+            Any::Map(val) => {
+                let mut items = HashMap::with_capacity(val.len());
+                for (key, value) in val {
+                    items.insert(key.to_string(), OwnedAny::from(value));
+                }
+                OwnedAny::Map(items)
+            }
+            Any::Null => OwnedAny::Null,
+        }
+    }
+}
+
+impl<'a> From<&'a OwnedAny> for Any<'a> {
+    fn from(value: &'a OwnedAny) -> Self {
+        match value {
+            OwnedAny::USize(val) => Any::USize(*val),
+            OwnedAny::U8(val) => Any::U8(*val),
+            OwnedAny::U16(val) => Any::U16(*val),
+            OwnedAny::U32(val) => Any::U32(*val),
+            OwnedAny::U64(val) => Any::U64(*val),
+            OwnedAny::U128(val) => Any::U128(*val),
+            OwnedAny::ISize(val) => Any::ISize(*val),
+            OwnedAny::I8(val) => Any::I8(*val),
+            OwnedAny::I16(val) => Any::I16(*val),
+            OwnedAny::I32(val) => Any::I32(*val),
+            OwnedAny::I64(val) => Any::I64(*val),
+            OwnedAny::I128(val) => Any::I128(*val),
+            OwnedAny::F32(val) => Any::F32(*val),
+            OwnedAny::F64(val) => Any::F64(*val),
+            OwnedAny::Str(val) => Any::Str(val),
+            OwnedAny::Bytes(val) => Any::Bytes(val),
+            OwnedAny::Char(val) => Any::Char(*val),
+            OwnedAny::Bool(val) => Any::Bool(*val),
+            OwnedAny::Array(val) => {
+                let mut items = Vec::with_capacity(val.len());
+                for item in val {
+                    items.push(Any::from(item));
+                }
+                Any::Array(items)
+            }
+            OwnedAny::Map(val) => {
+                let mut items = HashMap::with_capacity(val.len());
+                for (key, value) in val {
+                    items.insert(&key[..], Any::from(value));
+                }
+                Any::Map(items)
+            }
+            OwnedAny::Null => Any::Null,
+        }
+    }
+}
+
 impl<'a> Any<'a> {
     pub fn new(b: &'a Binary, token: BToken) -> Option<Any<'a>> {
         match token.get_type(b) {
@@ -740,6 +846,38 @@ impl TryFrom<Any<'_>> for Number {
             Any::ISize(val) => Ok(Number::ISize(val)),
             Any::F32(val) => Ok(Number::F32(val)),
             Any::F64(val) => Ok(Number::F64(val)),
+            _ => Err(Error::NumberConversionFailed(
+                "Could not convert into number".into(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<&Any<'_>> for Number {
+    type Error = Error;
+    fn try_from(value: &Any) -> Result<Self, Self::Error> {
+        match value {
+            Any::Str(val) => {
+                if val.contains('.') {
+                    Ok(Number::F64(val.parse()?))
+                } else {
+                    Ok(Number::ISize(val.parse()?))
+                }
+            }
+            Any::U8(val) => Ok(Number::U8(*val)),
+            Any::U16(val) => Ok(Number::U16(*val)),
+            Any::U32(val) => Ok(Number::U32(*val)),
+            Any::U64(val) => Ok(Number::U64(*val)),
+            Any::U128(val) => Ok(Number::U128(*val)),
+            Any::USize(val) => Ok(Number::USize(*val)),
+            Any::I8(val) => Ok(Number::I8(*val)),
+            Any::I16(val) => Ok(Number::I16(*val)),
+            Any::I32(val) => Ok(Number::I32(*val)),
+            Any::I64(val) => Ok(Number::I64(*val)),
+            Any::I128(val) => Ok(Number::I128(*val)),
+            Any::ISize(val) => Ok(Number::ISize(*val)),
+            Any::F32(val) => Ok(Number::F32(*val)),
+            Any::F64(val) => Ok(Number::F64(*val)),
             _ => Err(Error::NumberConversionFailed(
                 "Could not convert into number".into(),
             )),

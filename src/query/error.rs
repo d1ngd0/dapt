@@ -13,6 +13,7 @@ pub enum Error {
     UnexpectedEOF(String),
     NonExistentKey(String),
     DaptError(String),
+    NotFound,
 }
 
 impl Error {
@@ -44,6 +45,7 @@ impl Display for Error {
             Error::UnexpectedEOF(msg) => write!(f, "Unexpected EOF: {}", msg),
             Error::NonExistentKey(msg) => write!(f, "Non existent key: {}", msg),
             Error::DaptError(msg) => write!(f, "Dapt error: {}", msg),
+            Error::NotFound => write!(f, "Not found"),
         }
     }
 }
