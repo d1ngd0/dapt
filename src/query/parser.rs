@@ -1,6 +1,10 @@
 use std::{collections::HashMap, fmt::Display, ops::Deref};
 
-use crate::{binary::OwnedAny, Any, Dapt, Number, Path};
+use crate::{
+    binary::OwnedAny,
+    path::{node::FieldLiteral, parser::Node},
+    Any, Dapt, DaptBuilder, Number, Path,
+};
 
 use super::{
     error::{Error, QueryResult},
@@ -66,7 +70,7 @@ impl<'a> From<&'a str> for Parser<'a> {
 
 struct Column {
     agg: Box<dyn Aggregation>,
-    alias: Option<String>,
+    alias: Path,
 }
 
 // SELECT takes both expressions and aggregations. Any expressions will be wrapped
@@ -95,9 +99,13 @@ impl Select {
     }
 
     pub fn collect(&self) -> QueryResult<Dapt> {
-        // TODO: we have to add the ability to put values into a dapt
-        // packet through macros. Also need to do Any value to dapt
-        todo!()
+        let mut d = DaptBuilder::new();
+        for col in self.fields.iter() {
+            let value = col.agg.result()?;
+            d.set_any_path(&col.alias, value)?;
+        }
+
+        Ok(d.build())
     }
 }
 
@@ -212,12 +220,17 @@ impl<'a> Parser<'a> {
 
     pub fn parse_column(&mut self) -> QueryResult<Column> {
         let agg = self.parse_aggregation()?;
+
         let alias = match self.lex.peak() {
-            Some(SELECT_ALIAS) => {
+            Some(val) if val.to_string().to_uppercase() == SELECT_ALIAS => {
                 self.consume_token(SELECT_ALIAS)?;
-                Some(self.parse_string(KEY_WRAP)?)
+                let path = self.parse_string(KEY_WRAP)?;
+                Path::new(&path)?
             }
-            _ => None,
+            _ => {
+                let field = FieldLiteral::new(&format!("{}", agg));
+                Path::from(vec![Node::FieldLiteral(field)])
+            }
         };
 
         Ok(Column { agg, alias })
@@ -1516,6 +1529,32 @@ mod tests {
         assert_aggregation!(
             r#"10"#,
             Any::USize(10),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+    }
+
+    macro_rules! assert_select {
+        ( $expr:expr, $expected:expr, $($source:expr),+) => {
+            let mut parser = Parser::from($expr);
+            let mut expr = parser.parse_select().unwrap();
+            let sources = vec![$(serde_json::from_str($source).unwrap()),+];
+            for d in sources {
+                expr.process(&d).unwrap();
+            }
+            let result = expr.collect().unwrap();
+            assert_eq!(serde_json::to_string(&result).unwrap(), $expected);
+        };
+    }
+
+    #[test]
+    fn test_select() {
+        // literal, just to prove it can be done
+        assert_select!(
+            r#"SELECT 10 as "number" "#,
+            r#"{"number":10}"#,
+            // values
             r#"{"a": 1}"#,
             r#"{"a": 2}"#,
             r#"{"a": 3}"#

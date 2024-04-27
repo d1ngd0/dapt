@@ -11,6 +11,7 @@ pub type DaptResult<T> = Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
+    CanNotAquire(String),
     TypeMismatch(u8, String),
     IncorrectSize(String),
     InvalidIndex(String),
@@ -19,6 +20,18 @@ pub enum Error {
     ParseError(String),
     TooManyPointers,
     NotFound,
+}
+
+impl From<String> for Error {
+    fn from(value: String) -> Self {
+        Error::GeneralError(value)
+    }
+}
+
+impl From<&str> for Error {
+    fn from(value: &str) -> Self {
+        Error::GeneralError(value.to_string())
+    }
 }
 
 impl From<ParseFloatError> for Error {
@@ -58,6 +71,7 @@ impl Display for Error {
             Error::ParseError(got) => write!(f, "Parse error: {}", got),
             Error::TooManyPointers => write!(f, "Too many pointers"),
             Error::NotFound => write!(f, "Not found"),
+            Error::CanNotAquire(got) => write!(f, "Can not aquire: {}", got),
         }
     }
 }

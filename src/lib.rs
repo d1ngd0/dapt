@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrayvec::ArrayVec;
-use binary::BReference;
+use binary::{BReference, BToken, Serialize};
 use binary::{Binary, BinaryVisitor, SerializeBReference};
 use error::DaptResult;
 use path::node::Discoverable;
@@ -238,6 +238,63 @@ impl Dapt {
             Some(path) => self.ptrs.iter().for_each(|p| path.find(&self.b, *p, f)),
             // if there is no path we can call the closure on our current location
             None => self.ptrs.iter().for_each(|p| f(*p)),
+        }
+    }
+}
+
+pub struct DaptBuilder {
+    b: Binary,
+}
+
+impl From<Dapt> for DaptBuilder {
+    fn from(d: Dapt) -> Self {
+        DaptBuilder { b: (*d.b).clone() }
+    }
+}
+
+impl DaptBuilder {
+    pub fn new() -> Self {
+        DaptBuilder {
+            b: Binary::default(),
+        }
+    }
+
+    pub fn set<T: Serialize>(&mut self, path: &str, value: T) -> DaptResult<()> {
+        let p = Path::try_from(path)?;
+        self.set_path(&p, value)
+    }
+
+    pub fn set_path<T: Serialize>(&mut self, path: &Path, value: T) -> DaptResult<()> {
+        let node = path.aquire(&mut self.b, BReference::from(0))?;
+        let v = self
+            .b
+            .add(Some(BToken::from(node).get_reference(&self.b)), value);
+        node.set_child(v, &mut self.b);
+        Ok(())
+    }
+
+    pub fn set_any(&mut self, path: &str, value: Any) -> DaptResult<()> {
+        let p = Path::try_from(path)?;
+        self.set_any_path(&p, value)
+    }
+
+    pub fn set_any_path(&mut self, path: &Path, value: Any) -> DaptResult<()> {
+        let node = path.aquire(&mut self.b, BReference::from(0))?;
+        let v = self
+            .b
+            .add_any(Some(BToken::from(node).get_reference(&self.b)), value);
+        node.set_child(v, &mut self.b);
+        Ok(())
+    }
+
+    pub fn build(self) -> Dapt {
+        let mut ptrs = ArrayVec::new();
+        ptrs.push(BReference::from(0));
+
+        Dapt {
+            ptrs,
+            iter_loc: 0,
+            b: Arc::new(self.b),
         }
     }
 }

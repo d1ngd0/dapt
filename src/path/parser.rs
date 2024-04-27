@@ -1,10 +1,15 @@
 use std::fmt;
 use std::ops::Deref;
 
-use crate::binary::{BReference, Binary};
+use crate::Error as DaptError;
+
+use crate::binary::{BKeyValue, BReference, BToken, Binary};
+use crate::error::DaptResult;
 
 use super::lexer::Lexer;
-use super::node::{Array, Discoverable, FieldLiteral, First, Multi, Recursive, Regexp, Wildcard};
+use super::node::{
+    Aquireable, Array, Discoverable, FieldLiteral, First, Multi, Recursive, Regexp, Wildcard,
+};
 
 const NESTING_OPERATOR: &str = ".";
 const INDEX_OPERATOR: &str = "[";
@@ -72,6 +77,15 @@ impl Node {
         }
     }
 
+    pub fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BKeyValue> {
+        match self {
+            Node::FieldLiteral(fl) => fl.aquire(bin, b),
+            _ => Err(DaptError::CanNotAquire(
+                "can not aquire from non field literal".to_string(),
+            )),
+        }
+    }
+
     pub fn new_field_literal(field: &str) -> ParseResult<Node> {
         Ok(Node::FieldLiteral(FieldLiteral::new(field)))
     }
@@ -121,6 +135,22 @@ impl Path {
 
     fn from_nodes(nodes: Vec<Node>) -> Path {
         Path(nodes)
+    }
+
+    pub fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BKeyValue> {
+        let mut b = b;
+        let mut kv = None;
+
+        for node in self.iter() {
+            kv = Some(node.aquire(bin, b)?);
+            b = BToken::from(kv.unwrap()).get_reference(bin);
+        }
+
+        if let Some(kv) = kv {
+            Ok(kv)
+        } else {
+            Err(DaptError::CanNotAquire("empty path".to_string()))
+        }
     }
 
     // https://github.com/rust-lang/rust/issues/43520 here is why we need
@@ -216,6 +246,12 @@ impl TryFrom<&str> for Path {
         }
 
         Ok(Path(nodes))
+    }
+}
+
+impl From<Vec<Node>> for Path {
+    fn from(nodes: Vec<Node>) -> Path {
+        Path(nodes)
     }
 }
 

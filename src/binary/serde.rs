@@ -10,8 +10,8 @@ use serde::{
 
 use super::{
     BArray, BKeyValue, BMap, BReference, Binary, TYPE_ARRAY, TYPE_BOOL, TYPE_BYTES, TYPE_CHAR,
-    TYPE_F32, TYPE_F64, TYPE_I128, TYPE_I16, TYPE_I32, TYPE_I64, TYPE_I8, TYPE_KEYVAL, TYPE_MAP,
-    TYPE_NULL, TYPE_STR, TYPE_U128, TYPE_U16, TYPE_U32, TYPE_U64, TYPE_U8,
+    TYPE_F32, TYPE_F64, TYPE_I128, TYPE_I16, TYPE_I32, TYPE_I64, TYPE_I8, TYPE_ISIZE, TYPE_KEYVAL,
+    TYPE_MAP, TYPE_NULL, TYPE_STR, TYPE_U128, TYPE_U16, TYPE_U32, TYPE_U64, TYPE_U8, TYPE_USIZE,
 };
 
 pub struct BinaryVisitor {
@@ -222,11 +222,13 @@ impl Serialize for SerializeBReference<'_> {
             TYPE_I16 => serializer.serialize_i16(self.get::<i16>()),
             TYPE_I32 => serializer.serialize_i32(self.get::<i32>()),
             TYPE_I64 => serializer.serialize_i64(self.get::<i64>()),
+            TYPE_ISIZE => serializer.serialize_i64(self.get::<isize>() as i64),
             TYPE_I128 => serializer.serialize_i128(self.get::<i128>()),
             TYPE_U8 => serializer.serialize_u8(self.get::<u8>()),
             TYPE_U16 => serializer.serialize_u16(self.get::<u16>()),
             TYPE_U32 => serializer.serialize_u32(self.get::<u32>()),
             TYPE_U64 => serializer.serialize_u64(self.get::<u64>()),
+            TYPE_USIZE => serializer.serialize_u64(self.get::<usize>() as u64),
             TYPE_U128 => serializer.serialize_u128(self.get::<u128>()),
             TYPE_F32 => serializer.serialize_f32(self.get::<f32>()),
             TYPE_F64 => serializer.serialize_f64(self.get::<f64>()),
@@ -260,16 +262,17 @@ impl Serialize for SerializeBReference<'_> {
 
                     map.serialize_entry(
                         &kv.key(&self.bin),
-                        &SerializeBReference::new(kv.child(&self.bin), self.bin),
+                        &SerializeBReference::new(kv.child(&self.bin).unwrap(), self.bin),
                     )?;
                 }
                 map.end()
             }
             TYPE_KEYVAL => {
                 let kv = self.bookmark.key_at(self.bin).unwrap();
-                SerializeBReference::new(kv.child(&self.bin), self.bin).serialize(serializer)
+                SerializeBReference::new(kv.child(&self.bin).unwrap(), self.bin)
+                    .serialize(serializer)
             }
-            _ => panic!("Unknown type"),
+            unknown => panic!("Unknown type {}", unknown),
         }
     }
 }
