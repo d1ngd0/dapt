@@ -1,9 +1,11 @@
 use std::fmt;
 use std::ops::Deref;
 
-use crate::binary::{BReference, Binary};
+use crate::Error as DaptError;
+use serde::de::Error;
+
+use crate::binary::{BKeyValue, BReference, Binary};
 use crate::error::DaptResult;
-use crate::Error;
 
 use super::lexer::Lexer;
 use super::node::{
@@ -76,10 +78,10 @@ impl Node {
         }
     }
 
-    pub fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BReference> {
+    pub fn aquire(&self, bin: &mut Binary, b: BKeyValue) -> DaptResult<BKeyValue> {
         match self {
             Node::FieldLiteral(fl) => fl.aquire(bin, b),
-            _ => Err(Error::CanNotAquire(
+            _ => Err(DaptError::CanNotAquire(
                 "can not aquire from non field literal".to_string(),
             )),
         }
@@ -136,7 +138,7 @@ impl Path {
         Path(nodes)
     }
 
-    pub fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BReference> {
+    pub fn aquire(&self, bin: &mut Binary, b: BKeyValue) -> DaptResult<BKeyValue> {
         let mut b = b;
         for node in self.iter() {
             b = node.aquire(bin, b)?;

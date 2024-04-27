@@ -1,9 +1,11 @@
 use core::slice;
 use std::fmt;
 
-use crate::binary::{BArray, BKeyValue, BMap, BReference, Binary, TYPE_ARRAY, TYPE_MAP};
+use crate::binary::{
+    BArray, BKeyValue, BMap, BReference, BToken, Binary, TYPE_ARRAY, TYPE_KEYVAL, TYPE_MAP,
+};
 use crate::error::DaptResult;
-use crate::{Error, Path};
+use crate::{Error, Path, MAX_POINTERS};
 
 use super::parser::Node;
 
@@ -11,7 +13,7 @@ use super::parser::Node;
 // create it. The aquire function should only ever create a sinle entity within
 // the document, since you can only return a single breference.
 pub trait Aquireable {
-    fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BReference>;
+    fn aquire(&self, bin: &mut Binary, b: BKeyValue) -> DaptResult<BKeyValue>;
 }
 
 // Node is the type that a parser puts out. each
@@ -70,36 +72,65 @@ impl Discoverable for FieldLiteral {
 }
 
 impl Aquireable for FieldLiteral {
-    fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BReference> {
+    fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BKeyValue> {
         let mut reg = None;
         self.find(bin, b, &mut |x| reg = Some(x));
 
         if reg.is_some() {
-            return Ok(reg.unwrap());
+            return Ok(reg
+                .unwrap()
+                .key_at(bin)
+                .ok_or_else(|| Error::CanNotAquire(format!("could not aquire {}", self)))?);
         }
 
-        match b.val_at(bin) {
+        let tok = match b.token_at(bin) {
+            Some(tok) => tok,
+            // in the event the breference is empty. This can happen on an empty
+            // dapt packet build, so we will set it to a map.
+            None => {
+                let (key_bref, bkv) = BKeyValue::new(None, BReference::from(0), &self.name, bin);
+                // create new map
+                let (map_bref, _) = BMap::new(Some(b), slice::from_ref(&key_bref), bin);
+                // set the index of the breference to the map
+                b.set_index(bin, *map_bref);
+                return Ok(bkv);
+            }
+        };
+
+        match tok.get_type(bin) {
+            TYPE_KEYVAL => {
+                let bkv = BKeyValue::from(tok);
+                match bkv.child(bin) {
+                    TYPE_MAP => {
+                        let bcoll = BMap::from(bkv);
+                        bcoll.add_child(&self.name, BReference::from(0), bin);
+                        Ok(bkv)
+                    }
+                    _ => Err("Cannot add a field to a non map type".into()),
+                }
+            }
             // We have a token, and it is of type map
             Some(tok) if tok.get_type(bin) == TYPE_MAP => {
-                let (key_bref, _) = BKeyValue::new(Some(b), BReference::from(0), &self.name, bin);
+                let (key_bref, bkv) = BKeyValue::new(
+                    Some(tok.get_reference(bin)),
+                    BReference::from(0),
+                    &self.name,
+                    bin,
+                );
+
                 // get existing map and extend it
                 let bcoll = BMap::from(tok);
                 bcoll.add_child(&self.name, key_bref, bin);
+
                 // return key value
-                Ok(key_bref)
+                Ok(bkv)
             }
             // we have a token, but it is not of type map
             Some(_) => Err("Cannot add a field to a non map type".into()),
             // if we are here there is no token set, and we are
             // working with an empty key value or empty dapt packet
             // So lets create the map
-            None => {
-                let (key_bref, _) = BKeyValue::new(None, BReference::from(0), &self.name, bin);
-                // create new map
-                let _ = BMap::new(Some(b), slice::from_ref(&key_bref), bin);
-                // return key value
-                Ok(key_bref)
-            }
+            None => {}
         }
     }
 }

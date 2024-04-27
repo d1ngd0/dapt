@@ -237,7 +237,7 @@ impl BReference {
         }
     }
 
-    fn set_index(&self, bin: &mut Binary, index: usize) {
+    pub fn set_index(&self, bin: &mut Binary, index: usize) {
         (index as u32).serialize(bin.at_mut(self.0 + PTR_OFFSET, PTR_WIDTH));
     }
 
@@ -286,6 +286,10 @@ impl BReference {
             // a key... maybe this is ol
             _ => token.get_parent(bin)?.key_at(bin),
         }
+    }
+
+    pub fn token_at(&self, bin: &Binary) -> Option<BToken> {
+        self.resolve(bin, MAX_REFERENCE_DEPTH)
     }
 
     pub fn walk<'a, F>(&self, bin: &'a Binary, f: &mut F) -> bool
@@ -659,7 +663,7 @@ impl BKeyValue {
         (bref, token.into())
     }
 
-    pub fn child(&self, bin: &Binary) -> BReference {
+    pub fn child(&self, bin: &Binary) -> Option<BReference> {
         BReference::from(u32::deserialize(
             bin.at(**self + CONTENT_OFFSET, mem::size_of::<u32>()),
         ))
@@ -672,6 +676,10 @@ impl BKeyValue {
             **self + header,
             BToken::from(*self).get_length(bin) - header,
         ))
+    }
+
+    pub fn set_child(&self, child: BReference, bin: &mut Binary) {
+        (*child as u32).serialize(bin.at_mut(**self + CONTENT_OFFSET, mem::size_of::<u32>()));
     }
 }
 
