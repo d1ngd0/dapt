@@ -1,9 +1,18 @@
+use core::slice;
 use std::fmt;
 
-use crate::binary::{BArray, BMap, BReference, Binary, TYPE_ARRAY, TYPE_MAP};
-use crate::Path;
+use crate::binary::{BArray, BKeyValue, BMap, BReference, Binary, TYPE_ARRAY, TYPE_MAP};
+use crate::error::DaptResult;
+use crate::{Error, Path};
 
 use super::parser::Node;
+
+// Aquireable allows you to ask for that token, and if it doesn't exist we will
+// create it. The aquire function should only ever create a sinle entity within
+// the document, since you can only return a single breference.
+pub trait Aquireable {
+    fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BReference>;
+}
 
 // Node is the type that a parser puts out. each
 // node should implement the trait functions below
@@ -57,6 +66,41 @@ impl Discoverable for FieldLiteral {
             }
             _ => (),
         };
+    }
+}
+
+impl Aquireable for FieldLiteral {
+    fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BReference> {
+        let mut reg = None;
+        self.find(bin, b, &mut |x| reg = Some(x));
+
+        if reg.is_some() {
+            return Ok(reg.unwrap());
+        }
+
+        match b.val_at(bin) {
+            // We have a token, and it is of type map
+            Some(tok) if tok.get_type(bin) == TYPE_MAP => {
+                let (key_bref, _) = BKeyValue::new(Some(b), BReference::from(0), &self.name, bin);
+                // get existing map and extend it
+                let bcoll = BMap::from(tok);
+                bcoll.add_child(&self.name, key_bref, bin);
+                // return key value
+                Ok(key_bref)
+            }
+            // we have a token, but it is not of type map
+            Some(_) => Err("Cannot add a field to a non map type".into()),
+            // if we are here there is no token set, and we are
+            // working with an empty key value or empty dapt packet
+            // So lets create the map
+            None => {
+                let (key_bref, _) = BKeyValue::new(None, BReference::from(0), &self.name, bin);
+                // create new map
+                let _ = BMap::new(Some(b), slice::from_ref(&key_bref), bin);
+                // return key value
+                Ok(key_bref)
+            }
+        }
     }
 }
 

@@ -46,11 +46,35 @@ const INITAL_BINARY_SIZE: usize = 1024;
 pub struct Binary(Vec<u8>);
 
 impl Binary {
+    // increase the size of the binary. We return a mutable subslice
+    // of the new growth, and the index where that subslice starts
+    // within the binary.
     fn grow(&mut self, size: usize) -> (usize, &mut [u8]) {
         let index = self.0.len();
         self.0.resize(index + size, 0);
 
         (index, self.at_mut(index, size))
+    }
+
+    fn copy(&mut self, b: BToken, delta: usize) -> (usize, &mut [u8]) {
+        // grab the index
+        let index = self.0.len();
+        // grab the length of the current token
+        let size = b.get_length(self);
+        // grow the binary and copy the token to the end of the binary
+        for i in 0..size {
+            self.0.push(self.0[*b + i]);
+        }
+        // set the val to the new location
+        let b = BToken::from(index);
+        // set the new length of the token plus the delta
+        b.set_length(self, size + delta);
+        // set the new location in the reference to the new token
+        BReference::from(b.get_reference(self)).set_index(self, index);
+
+        // grow the end of the token for the delta
+        let (_, buf) = self.grow(delta);
+        (index, buf)
     }
 
     fn at(&self, index: usize, width: usize) -> &[u8] {
@@ -77,6 +101,50 @@ impl Binary {
         tok.set_type(self, t);
 
         bref
+    }
+
+    pub fn add_any(&mut self, parent: Option<BReference>, content: Any) -> BReference {
+        match content {
+            Any::U8(val) => self.add(parent, val),
+            Any::U16(val) => self.add(parent, val),
+            Any::U32(val) => self.add(parent, val),
+            Any::U64(val) => self.add(parent, val),
+            Any::U128(val) => self.add(parent, val),
+            Any::USize(val) => self.add(parent, val),
+            Any::I8(val) => self.add(parent, val),
+            Any::I16(val) => self.add(parent, val),
+            Any::I32(val) => self.add(parent, val),
+            Any::I64(val) => self.add(parent, val),
+            Any::I128(val) => self.add(parent, val),
+            Any::ISize(val) => self.add(parent, val),
+            Any::F32(val) => self.add(parent, val),
+            Any::F64(val) => self.add(parent, val),
+            Any::Str(val) => self.add(parent, val),
+            Any::Bool(val) => self.add(parent, val),
+            Any::Char(val) => self.add(parent, val),
+            Any::Bytes(val) => self.add(parent, val),
+            Any::Null => self.add(parent, ()),
+            Any::Array(val) => {
+                let mut children: Vec<BReference> = Vec::with_capacity(val.len());
+                for v in val {
+                    children.push(self.add_any(parent, v));
+                }
+
+                let (bref, _) = BArray::new(parent, &children[..], self);
+                bref
+            }
+            Any::Map(val) => {
+                let mut children: Vec<BReference> = Vec::with_capacity(val.len());
+                for (k, v) in val {
+                    let child = self.add_any(parent, v);
+                    let (bref, _token) = BKeyValue::new(parent, child, k, self);
+                    children.push(bref);
+                }
+
+                let (bref, _) = BMap::new(parent, &children[..], self);
+                bref
+            }
+        }
     }
 
     // pub fn type_at(&self, index: BReference) -> Option<u8> {
@@ -167,6 +235,10 @@ impl BReference {
         } else {
             Some(BToken::from(num))
         }
+    }
+
+    fn set_index(&self, bin: &mut Binary, index: usize) {
+        (index as u32).serialize(bin.at_mut(self.0 + PTR_OFFSET, PTR_WIDTH));
     }
 
     // This will be needed in the future when we add mutation
@@ -437,6 +509,10 @@ impl BToken {
         u16::deserialize(bin.at(**self + LENGTH_OFFSET, LENGTH_WIDTH)) as usize
     }
 
+    pub fn set_length(&self, bin: &mut Binary, size: usize) {
+        (size as u16).serialize(bin.at_mut(**self + LENGTH_OFFSET, LENGTH_WIDTH));
+    }
+
     pub fn get_content<'a>(&self, bin: &'a Binary) -> &'a [u8] {
         let length = self.get_length(bin) - CONTENT_OFFSET;
         bin.at(**self + CONTENT_OFFSET, length)
@@ -531,6 +607,14 @@ impl BMap {
 
     pub fn length(&self, bin: &Binary) -> usize {
         (BToken::from(*self).get_length(bin) - CONTENT_OFFSET) / mem::size_of::<u32>()
+    }
+
+    pub fn add_child(&self, key: &str, child: BReference, bin: &mut Binary) {
+        // TODO: This is a pretty inefficient way to do this since we copy the token
+        // any time we add a child. May want to think through having a default size for
+        // a map, kind of like how a vector has a cap and len.
+        let (index, buf) = bin.copy(BToken::from(*self), mem::size_of::<u32>());
+        (*child as u32).serialize(buf);
     }
 }
 

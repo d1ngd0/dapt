@@ -2,9 +2,13 @@ use std::fmt;
 use std::ops::Deref;
 
 use crate::binary::{BReference, Binary};
+use crate::error::DaptResult;
+use crate::Error;
 
 use super::lexer::Lexer;
-use super::node::{Array, Discoverable, FieldLiteral, First, Multi, Recursive, Regexp, Wildcard};
+use super::node::{
+    Aquireable, Array, Discoverable, FieldLiteral, First, Multi, Recursive, Regexp, Wildcard,
+};
 
 const NESTING_OPERATOR: &str = ".";
 const INDEX_OPERATOR: &str = "[";
@@ -72,6 +76,15 @@ impl Node {
         }
     }
 
+    pub fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BReference> {
+        match self {
+            Node::FieldLiteral(fl) => fl.aquire(bin, b),
+            _ => Err(Error::CanNotAquire(
+                "can not aquire from non field literal".to_string(),
+            )),
+        }
+    }
+
     pub fn new_field_literal(field: &str) -> ParseResult<Node> {
         Ok(Node::FieldLiteral(FieldLiteral::new(field)))
     }
@@ -121,6 +134,15 @@ impl Path {
 
     fn from_nodes(nodes: Vec<Node>) -> Path {
         Path(nodes)
+    }
+
+    pub fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BReference> {
+        let mut b = b;
+        for node in self.iter() {
+            b = node.aquire(bin, b)?;
+        }
+
+        Ok(b)
     }
 
     // https://github.com/rust-lang/rust/issues/43520 here is why we need
@@ -216,6 +238,12 @@ impl TryFrom<&str> for Path {
         }
 
         Ok(Path(nodes))
+    }
+}
+
+impl From<Vec<Node>> for Path {
+    fn from(nodes: Vec<Node>) -> Path {
+        Path(nodes)
     }
 }
 
