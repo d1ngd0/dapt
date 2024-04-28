@@ -80,12 +80,12 @@ struct Column {
 // aggregation you can call process whenever you want the calculation to be done.
 // Many aggregations are set back to 0 or the default value after process is called.
 // so you can continue to use Select after collect is called.
-pub struct Select {
+pub struct SelectClause {
     fields: Vec<Column>,
 }
 
-impl Select {
-    pub fn new(str: &str) -> QueryResult<Select> {
+impl SelectClause {
+    pub fn new(str: &str) -> QueryResult<SelectClause> {
         let mut parser = Parser::from(str);
         parser.parse_select()
     }
@@ -194,7 +194,7 @@ impl WhereClause {
 }
 
 impl<'a> Parser<'a> {
-    pub fn parse_select(&mut self) -> QueryResult<Select> {
+    pub fn parse_select(&mut self) -> QueryResult<SelectClause> {
         self.consume_token(SELECT)?;
 
         let mut fields = Vec::new();
@@ -215,7 +215,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Select { fields })
+        Ok(SelectClause { fields })
     }
 
     pub fn parse_column(&mut self) -> QueryResult<Column> {
@@ -1581,6 +1581,15 @@ mod tests {
         assert_select!(
             r#"SELECT sum("a") as "a.b.c" "#,
             r#"{"a":{"b":{"c":6}}}"#,
+            // values
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        assert_select!(
+            r#"SELECT sum("a") as "sum", count("a") as "count" "#,
+            r#"{"sum":6,"count":3}"#,
             // values
             r#"{"a": 1}"#,
             r#"{"a": 2}"#,

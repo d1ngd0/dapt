@@ -1,4 +1,7 @@
-use dapt::{query::WhereClause, Dapt, Path};
+use dapt::{
+    query::{SelectClause, WhereClause},
+    Dapt, Path,
+};
 
 #[test]
 fn test_deserialize() {
@@ -147,4 +150,34 @@ fn test_filter() {
         WhereClause::new("WHERE add(\"c[1]\", 4) > 5 AND \"d.*.deeper\" == {\"deepest\": 'hello'}")
             .unwrap();
     assert_eq!(f.filter(&d).unwrap(), true);
+}
+
+macro_rules! assert_select {
+    ( $expr:expr, $expected:expr, $($source:expr),+) => {
+        let mut select = SelectClause::new($expr).unwrap();
+        let sources = vec![$(serde_json::from_str($source).unwrap()),+];
+        for d in sources {
+            let _ = select.process(&d);
+        }
+        let result = select.collect().unwrap();
+        assert_eq!(serde_json::to_string(&result).unwrap(), $expected);
+    };
+}
+
+#[test]
+fn test_select() {
+    // transform and aggregation
+    assert_select!(
+        r#" SELECT "a" as "data.first", "b" as "data.second", sum("c") as "sum" "#,
+        r#"{"data":{"first":1,"second":"hello"},"sum":6}"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3]}"#,
+        r#"{"a":1,"b":"hello"}"#
+    );
+
+    assert_select!(
+        r#" SELECT count(), count("c") as "c_count", sum("c") as "sum" "#,
+        r#"{"COUNT":2,"c_count":1,"sum":6}"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3]}"#,
+        r#"{"a":1,"b":"hello"}"#
+    );
 }
