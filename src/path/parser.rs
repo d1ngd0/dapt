@@ -2,9 +2,8 @@ use std::fmt;
 use std::ops::Deref;
 
 use crate::Error as DaptError;
-use serde::de::Error;
 
-use crate::binary::{BKeyValue, BReference, Binary};
+use crate::binary::{BKeyValue, BReference, BToken, Binary};
 use crate::error::DaptResult;
 
 use super::lexer::Lexer;
@@ -78,7 +77,7 @@ impl Node {
         }
     }
 
-    pub fn aquire(&self, bin: &mut Binary, b: BKeyValue) -> DaptResult<BKeyValue> {
+    pub fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BKeyValue> {
         match self {
             Node::FieldLiteral(fl) => fl.aquire(bin, b),
             _ => Err(DaptError::CanNotAquire(
@@ -138,13 +137,20 @@ impl Path {
         Path(nodes)
     }
 
-    pub fn aquire(&self, bin: &mut Binary, b: BKeyValue) -> DaptResult<BKeyValue> {
+    pub fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BKeyValue> {
         let mut b = b;
+        let mut kv = None;
+
         for node in self.iter() {
-            b = node.aquire(bin, b)?;
+            kv = Some(node.aquire(bin, b)?);
+            b = BToken::from(kv.unwrap()).get_reference(bin);
         }
 
-        Ok(b)
+        if let Some(kv) = kv {
+            Ok(kv)
+        } else {
+            Err(DaptError::CanNotAquire("empty path".to_string()))
+        }
     }
 
     // https://github.com/rust-lang/rust/issues/43520 here is why we need

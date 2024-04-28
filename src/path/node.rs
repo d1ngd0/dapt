@@ -13,7 +13,7 @@ use super::parser::Node;
 // create it. The aquire function should only ever create a sinle entity within
 // the document, since you can only return a single breference.
 pub trait Aquireable {
-    fn aquire(&self, bin: &mut Binary, b: BKeyValue) -> DaptResult<BKeyValue>;
+    fn aquire(&self, bin: &mut Binary, b: BReference) -> DaptResult<BKeyValue>;
 }
 
 // Node is the type that a parser puts out. each
@@ -83,8 +83,7 @@ impl Aquireable for FieldLiteral {
                 .ok_or_else(|| Error::CanNotAquire(format!("could not aquire {}", self)))?);
         }
 
-        let tok = match b.token_at(bin) {
-            Some(tok) => tok,
+        match b.token_at(bin) {
             // in the event the breference is empty. This can happen on an empty
             // dapt packet build, so we will set it to a map.
             None => {
@@ -93,23 +92,9 @@ impl Aquireable for FieldLiteral {
                 let (map_bref, _) = BMap::new(Some(b), slice::from_ref(&key_bref), bin);
                 // set the index of the breference to the map
                 b.set_index(bin, *map_bref);
-                return Ok(bkv);
+                Ok(bkv)
             }
-        };
-
-        match tok.get_type(bin) {
-            TYPE_KEYVAL => {
-                let bkv = BKeyValue::from(tok);
-                match bkv.child(bin) {
-                    TYPE_MAP => {
-                        let bcoll = BMap::from(bkv);
-                        bcoll.add_child(&self.name, BReference::from(0), bin);
-                        Ok(bkv)
-                    }
-                    _ => Err("Cannot add a field to a non map type".into()),
-                }
-            }
-            // We have a token, and it is of type map
+            // we have a token which is a map, we can add another keyvalue to it and move on
             Some(tok) if tok.get_type(bin) == TYPE_MAP => {
                 let (key_bref, bkv) = BKeyValue::new(
                     Some(tok.get_reference(bin)),
@@ -125,12 +110,26 @@ impl Aquireable for FieldLiteral {
                 // return key value
                 Ok(bkv)
             }
-            // we have a token, but it is not of type map
+            // we have found a keyValue, in which case we should check if it has
+            // a child and go deeper, or we should set the child value
+            Some(tok) if tok.get_type(bin) == TYPE_KEYVAL => {
+                let bkv = BKeyValue::from(tok);
+                let child = bkv.child(bin);
+
+                // the key has a value, so we should grab the child value and try to aquire that
+                if child.is_some() {
+                    return self.aquire(bin, child.unwrap());
+                }
+
+                let (key_bref, bkv) = BKeyValue::new(None, BReference::from(0), &self.name, bin);
+                // create new map
+                let (map_bref, _) = BMap::new(Some(b), slice::from_ref(&key_bref), bin);
+                // set the index of the breference to the map
+                bkv.set_child(map_bref, bin);
+                Ok(bkv)
+            }
+            // this is a case we do not handle
             Some(_) => Err("Cannot add a field to a non map type".into()),
-            // if we are here there is no token set, and we are
-            // working with an empty key value or empty dapt packet
-            // So lets create the map
-            None => {}
         }
     }
 }

@@ -506,7 +506,7 @@ impl<'a> Any<'a> {
                 let mut items = HashMap::with_capacity(map.length(b));
                 for i in 0..map.length(b) {
                     let key_tok = map.child_index(b, i).unwrap().key_at(b).unwrap();
-                    let val_tok = key_tok.child(b).val_at(b).unwrap();
+                    let val_tok = key_tok.child(b).unwrap().val_at(b).unwrap();
                     items.insert(key_tok.key(b), Any::new(b, val_tok).unwrap());
                 }
                 Some(Any::Map(items))

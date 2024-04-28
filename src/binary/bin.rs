@@ -268,7 +268,7 @@ impl BReference {
         match token.get_type(bin) {
             TYPE_KEYVAL => {
                 let key_value: BKeyValue = token.try_into().ok()?;
-                key_value.child(bin).val_at(bin)
+                key_value.child(bin)?.val_at(bin)
             }
             _ => Some(token),
         }
@@ -651,12 +651,11 @@ impl BKeyValue {
 
         (*child as u32).serialize(bin.at_mut(*token + CONTENT_OFFSET, PTR_WIDTH));
 
-        // unwrap here because we are getting a bad child which means
-        // there is a logic error in the code
-        child
-            .resolve(bin, MAX_REFERENCE_DEPTH)
-            .unwrap()
-            .set_parent(bin, bref);
+        // it is possible to have a child that points to 0, which will be set later
+        // so we need to check if the child resolves before setting the parent
+        if let Some(child) = child.resolve(bin, MAX_REFERENCE_DEPTH) {
+            child.set_parent(bin, bref);
+        }
 
         key.serialize(bin.at_mut(*token + CONTENT_OFFSET + mem::size_of::<u32>(), key.len()));
 
@@ -664,9 +663,10 @@ impl BKeyValue {
     }
 
     pub fn child(&self, bin: &Binary) -> Option<BReference> {
-        BReference::from(u32::deserialize(
-            bin.at(**self + CONTENT_OFFSET, mem::size_of::<u32>()),
-        ))
+        match u32::deserialize(bin.at(**self + CONTENT_OFFSET, mem::size_of::<u32>())) {
+            0 => None,
+            v => Some(BReference::from(v)),
+        }
     }
 
     pub fn key<'a>(&self, bin: &'a Binary) -> &'a str {

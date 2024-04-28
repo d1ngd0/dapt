@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrayvec::ArrayVec;
-use binary::{BReference, Serialize};
+use binary::{BReference, BToken, Serialize};
 use binary::{Binary, BinaryVisitor, SerializeBReference};
 use error::DaptResult;
 use path::node::Discoverable;
@@ -266,7 +266,10 @@ impl DaptBuilder {
 
     pub fn set_path<T: Serialize>(&mut self, path: &Path, value: T) -> DaptResult<()> {
         let node = path.aquire(&mut self.b, BReference::from(0))?;
-        self.b.add(Some(node), value);
+        let v = self
+            .b
+            .add(Some(BToken::from(node).get_reference(&self.b)), value);
+        node.set_child(v, &mut self.b);
         Ok(())
     }
 
@@ -277,7 +280,10 @@ impl DaptBuilder {
 
     pub fn set_any_path(&mut self, path: &Path, value: Any) -> DaptResult<()> {
         let node = path.aquire(&mut self.b, BReference::from(0))?;
-        self.b.add_any(Some(node), value);
+        let v = self
+            .b
+            .add_any(Some(BToken::from(node).get_reference(&self.b)), value);
+        node.set_child(v, &mut self.b);
         Ok(())
     }
 
