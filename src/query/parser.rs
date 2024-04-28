@@ -1559,5 +1559,32 @@ mod tests {
             r#"{"a": 2}"#,
             r#"{"a": 3}"#
         );
+
+        assert_select!(
+            r#"SELECT sum("a") as "sum" "#,
+            r#"{"sum":6}"#,
+            // values
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        assert_select!(
+            r#"SELECT sum("a") "#,
+            r#"{"SUM(a)":6}"#,
+            // values
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        assert_select!(
+            r#"SELECT sum("a") as "a.b.c" "#,
+            r#"{"a":{"b":{"c":6}}}"#,
+            // values
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
     }
 }

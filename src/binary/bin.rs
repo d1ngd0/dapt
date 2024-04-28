@@ -1,5 +1,6 @@
 use std::convert::From;
 use std::default::Default;
+use std::fmt::Debug;
 use std::mem;
 use std::ops::Deref;
 
@@ -42,8 +43,32 @@ const ADD_TOKEN_HEADER_LENGTH: usize = CONTENT_OFFSET;
 
 const INITAL_BINARY_SIZE: usize = 1024;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Binary(Vec<u8>);
+
+impl Debug for Binary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut head = 0;
+
+        loop {
+            let token = BToken::from(head);
+            if token.get_type(&self) == TYPE_REFERENCE {
+                let bref = BReference::from(token);
+                bref.dump(&self, f)?;
+                head += REFERENCE_LENGTH;
+            } else {
+                token.dump(&self, f)?;
+                head += token.get_length(self);
+            }
+
+            if head >= self.0.len() {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+}
 
 impl Binary {
     // increase the size of the binary. We return a mutable subslice
@@ -336,9 +361,26 @@ impl BReference {
         }
     }
 
-    pub fn dump<'a>(&self, bin: &'a Binary) -> &'a [u8] {
-        let token = self.resolve(bin, MAX_REFERENCE_DEPTH).unwrap();
-        token.dump(bin)
+    pub fn dump<'a>(
+        &self,
+        bin: &'a Binary,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "// {} BReference {:?}\n",
+            self.0,
+            bin.at(self.0 + TYPE_OFFSET, TYPE_WIDTH)
+        )?;
+        write!(
+            f,
+            "{:?} // Reference {:?}\n",
+            bin.at(self.0 + PTR_OFFSET, PTR_WIDTH),
+            self.get_index(bin),
+        )?;
+        write!(f, "\n")?;
+
+        Ok(())
     }
 }
 
@@ -526,8 +568,52 @@ impl BToken {
         self.get_type(bin) == t
     }
 
-    pub fn dump<'a>(&self, bin: &'a Binary) -> &'a [u8] {
-        bin.at(**self, BToken::from(*self).get_length(bin))
+    pub fn dump<'a>(
+        &self,
+        bin: &'a Binary,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "// {} BToken {:?}\n",
+            self.0,
+            bin.at(self.0 + TYPE_OFFSET, TYPE_WIDTH)
+        )?;
+        write!(
+            f,
+            "{:?} // Length: {}\n",
+            bin.at(self.0 + LENGTH_OFFSET, LENGTH_WIDTH),
+            self.get_length(bin),
+        )?;
+        write!(
+            f,
+            "{:?} // Reference: {}\n",
+            bin.at(self.0 + REFERENCE_OFFSET, REFERENCE_WIDTH),
+            *self.get_reference(bin),
+        )?;
+        write!(
+            f,
+            "{:?} // Parent: {:?}\n",
+            bin.at(self.0 + PARENT_OFFSET, PARENT_WIDTH),
+            self.get_parent(bin),
+        )?;
+
+        match self.get_type(bin) {
+            TYPE_ARRAY => BArray::from(*self).dump(bin, f),
+            TYPE_MAP => BMap::from(*self).dump(bin, f),
+            TYPE_KEYVAL => BKeyValue::from(*self).dump(bin, f),
+            _ => write!(
+                f,
+                "{:?} // Content: {:?}\n",
+                bin.at(
+                    self.0 + CONTENT_OFFSET,
+                    self.get_length(bin) - CONTENT_OFFSET
+                ),
+                bin.any(self.get_reference(bin))
+            ),
+        }?;
+
+        write!(f, "\n")
     }
 }
 
@@ -613,12 +699,32 @@ impl BMap {
         (BToken::from(*self).get_length(bin) - CONTENT_OFFSET) / mem::size_of::<u32>()
     }
 
-    pub fn add_child(&self, key: &str, child: BReference, bin: &mut Binary) {
+    pub fn add_child(&self, child: BReference, bin: &mut Binary) {
         // TODO: This is a pretty inefficient way to do this since we copy the token
         // any time we add a child. May want to think through having a default size for
         // a map, kind of like how a vector has a cap and len.
-        let (index, buf) = bin.copy(BToken::from(*self), mem::size_of::<u32>());
+        let (_index, buf) = bin.copy(BToken::from(*self), mem::size_of::<u32>());
         (*child as u32).serialize(buf);
+    }
+
+    pub fn dump<'a>(
+        &self,
+        bin: &'a Binary,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        write!(f, "// BMap Content {:?}\n", self.0,)?;
+
+        for i in 0..self.length(bin) {
+            let index = **self + CONTENT_OFFSET + (i * mem::size_of::<u32>());
+            write!(
+                f,
+                "{:?} // Child: {:?}\n",
+                bin.at(index, mem::size_of::<u32>()),
+                self.child_index(bin, i).unwrap()
+            )?;
+        }
+
+        write!(f, "\n")
     }
 }
 
@@ -680,6 +786,33 @@ impl BKeyValue {
 
     pub fn set_child(&self, child: BReference, bin: &mut Binary) {
         (*child as u32).serialize(bin.at_mut(**self + CONTENT_OFFSET, mem::size_of::<u32>()));
+    }
+
+    pub fn dump<'a>(
+        &self,
+        bin: &'a Binary,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        write!(f, "// BKeyValue Content {:?}\n", self.0,)?;
+
+        write!(
+            f,
+            "{:?} // Child: {:?}\n",
+            bin.at(**self + CONTENT_OFFSET, mem::size_of::<u32>()),
+            self.child(bin)
+        )?;
+
+        write!(
+            f,
+            "{:?} // Key: {:?}\n",
+            bin.at(
+                **self + CONTENT_OFFSET + mem::size_of::<u32>(),
+                BToken::from(*self).get_length(bin) - CONTENT_OFFSET - mem::size_of::<u32>()
+            ),
+            self.key(bin)
+        )?;
+
+        write!(f, "\n")
     }
 }
 
@@ -747,6 +880,26 @@ impl BArray {
 
     pub fn length(&self, bin: &Binary) -> usize {
         (BToken::from(*self).get_length(bin) - CONTENT_OFFSET) / mem::size_of::<u32>()
+    }
+
+    pub fn dump<'a>(
+        &self,
+        bin: &'a Binary,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        write!(f, "\tBArray Content {:?}\n", self.0,)?;
+
+        for i in 0..self.length(bin) {
+            let index = **self + CONTENT_OFFSET + (i * mem::size_of::<u32>());
+            write!(
+                f,
+                "\t\t{:?} Child: {:?}\n",
+                bin.at(index, mem::size_of::<u32>()),
+                self.child_index(bin, i).unwrap()
+            )?;
+        }
+
+        write!(f, "\t>\n")
     }
 }
 

@@ -105,7 +105,7 @@ impl Aquireable for FieldLiteral {
 
                 // get existing map and extend it
                 let bcoll = BMap::from(tok);
-                bcoll.add_child(&self.name, key_bref, bin);
+                bcoll.add_child(key_bref, bin);
 
                 // return key value
                 Ok(bkv)
@@ -113,8 +113,8 @@ impl Aquireable for FieldLiteral {
             // we have found a keyValue, in which case we should check if it has
             // a child and go deeper, or we should set the child value
             Some(tok) if tok.get_type(bin) == TYPE_KEYVAL => {
-                let bkv = BKeyValue::from(tok);
-                let child = bkv.child(bin);
+                let orig_bkv = BKeyValue::from(tok);
+                let child = orig_bkv.child(bin);
 
                 // the key has a value, so we should grab the child value and try to aquire that
                 if child.is_some() {
@@ -125,7 +125,7 @@ impl Aquireable for FieldLiteral {
                 // create new map
                 let (map_bref, _) = BMap::new(Some(b), slice::from_ref(&key_bref), bin);
                 // set the index of the breference to the map
-                bkv.set_child(map_bref, bin);
+                orig_bkv.set_child(map_bref, bin);
                 Ok(bkv)
             }
             // this is a case we do not handle
