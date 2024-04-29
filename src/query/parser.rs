@@ -15,6 +15,7 @@ const SELECT: &str = "SELECT";
 const SELECT_SEP: &str = ",";
 const SELECT_ALIAS: &str = "AS";
 const FROM: &str = "FROM";
+const FROM_SEP: &str = ",";
 const WHERE: &str = "WHERE";
 const HAVING: &str = "HAVING";
 const GROUP: &str = "GROUP";
@@ -71,6 +72,51 @@ impl<'a> From<&'a str> for Parser<'a> {
 struct Column {
     agg: Box<dyn Aggregation>,
     alias: Path,
+}
+
+struct GroupBy {
+    fields: Vec<Path>,
+    groups: HashMap<String, SelectClause>,
+}
+
+pub struct Query {
+    select: SelectClause,
+    from: FromClause,
+    wherre: WhereClause,
+    having: WhereClause,
+    group: GroupBy,
+}
+
+struct FromClause(Vec<String>);
+
+impl FromClause {
+    pub fn new(str: &str) -> QueryResult<FromClause> {
+        let mut parser = Parser::from(str);
+        parser.parse_from()
+    }
+}
+
+impl Query {
+    pub fn new(str: &str) -> QueryResult<Query> {
+        let mut parser = Parser::from(str);
+        parser.parse_query()
+    }
+
+    pub fn process(&mut self, d: &Dapt) -> QueryResult<()> {
+        if self.wherre.filter(d)? {
+            self.select.process(d)?;
+        }
+        Ok(())
+    }
+
+    pub fn collect(&self) -> QueryResult<Vec<Dapt>> {
+        let d = self.select.collect()?;
+        if self.having.filter(&d)? {
+            Ok(d)
+        } else {
+            Err(Error::NonExistentKey("no data found".to_string()))
+        }
+    }
 }
 
 // SELECT takes both expressions and aggregations. Any expressions will be wrapped
@@ -194,6 +240,66 @@ impl WhereClause {
 }
 
 impl<'a> Parser<'a> {
+    pub fn parse_query(&mut self) -> QueryResult<Query> {
+        let select = self.parse_select()?;
+
+        // from is optional, so we can create an empty from cluase
+        // if there is no value.
+        let from = if let Some(FROM) = self.lex.peak() {
+            self.parse_from()?
+        } else {
+            FromClause(Vec::new())
+        };
+
+        // where is optional, so we can create an empty where cluase
+        // if there is no value.
+        let where_clause = if let Some(WHERE) = self.lex.peak() {
+            self.parse_where()?
+        } else {
+            // this always evaluates to true
+            WhereClause {
+                condition: Conjunction::Single(Box::new(DefaultExpressCondition {
+                    expr: Box::new(BoolExpression { value: true }),
+                })),
+            }
+        };
+
+        // having is also optional
+        let having = if let Some(HAVING) = self.lex.peak() {
+            self.parse_having()?
+        } else {
+            // this always evaluates to true
+            WhereClause {
+                condition: Conjunction::Single(Box::new(DefaultExpressCondition {
+                    expr: Box::new(BoolExpression { value: true }),
+                })),
+            }
+        };
+
+        Ok(Query {
+            select,
+            from,
+            wherre: where_clause,
+            having,
+        })
+    }
+
+    pub fn parse_from(&mut self) -> QueryResult<FromClause> {
+        self.consume_token(FROM)?;
+
+        let mut sources = Vec::new();
+        loop {
+            sources.push(self.parse_string(KEY_WRAP)?);
+            if let Some(FROM_SEP) = self.lex.peak() {
+                self.consume_token(FROM_SEP)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(FromClause(sources))
+    }
+
     pub fn parse_select(&mut self) -> QueryResult<SelectClause> {
         self.consume_token(SELECT)?;
 
@@ -246,6 +352,20 @@ impl<'a> Parser<'a> {
             AGGREGATION_SUM => Ok(Box::new(SumAggregation::from_parser(self)?)),
             AGGREGATION_COUNT => Ok(Box::new(CountAggregation::from_parser(self)?)),
             _ => Ok(Box::new(ExpressionAggregation::from_parser(self)?)),
+        }
+    }
+
+    pub fn parse_having(&mut self) -> QueryResult<WhereClause> {
+        let tok = self
+            .lex
+            .token()
+            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+
+        match tok {
+            HAVING => Ok(WhereClause {
+                condition: self.parse_conjunction()?,
+            }),
+            _ => Err(Error::with_history("expected HAVING", &self.lex)),
         }
     }
 
