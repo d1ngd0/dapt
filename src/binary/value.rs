@@ -365,6 +365,7 @@ pub enum Any<'a> {
 
 // while this works I kinda hate it, is this idomatic or is there a better way to do
 // this?
+#[derive(Debug, Clone)]
 pub enum OwnedAny {
     USize(usize),
     U8(u8),

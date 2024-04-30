@@ -24,7 +24,7 @@ pub trait Discoverable {
         F: FnMut(BReference);
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct FieldLiteral {
     name: String,
 }
@@ -152,7 +152,7 @@ impl fmt::Display for FieldLiteral {
 // at the provided index. Dapt packets can point to multiple locations
 // in a document at once, which means supplying no index `[]` will point
 // to all elements in the array.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Array {
     index: Option<usize>,
 }
@@ -206,7 +206,7 @@ impl fmt::Display for Array {
 
 // Wildcard will select all the children within the map we are currently
 // in.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Wildcard;
 
 impl Discoverable for Wildcard {
@@ -244,7 +244,7 @@ impl fmt::Display for Wildcard {
 // recursive will traverse the tree until it finds the node that matches.
 // `~.message` would match the `message` field in the json structure
 // `{"something":{ "something-else": { "message": "hello" }}}`.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Recursive {
     child: Box<Node>,
 }
@@ -281,7 +281,7 @@ impl fmt::Display for Recursive {
 // `{~.message|~.error}` would match the `message` field in the json
 // structure `{"message": "hello"}` and the `error` field in the json
 // structure `{"error": "something went wrong"}`.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct First {
     paths: Vec<Path>,
 }
@@ -332,7 +332,7 @@ impl fmt::Display for First {
 // that are not empty. example `(~.message,~.error)` would match
 // both fields in the json structure:
 // `{"message": "hello", "error": "something went wrong"}`.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Multi {
     paths: Vec<Path>,
 }
@@ -372,7 +372,7 @@ impl fmt::Display for Multi {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Regexp {
     name: regex::Regex,
 }

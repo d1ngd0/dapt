@@ -50,7 +50,7 @@ impl ParseError {
 
 type ParseResult<T> = Result<T, ParseError>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Node {
     FieldLiteral(FieldLiteral),
     Array(Array),
@@ -125,7 +125,7 @@ impl<'a> From<&'a str> for Parser<'a> {
 
 // Path is a collection of nodes. It also impelmets the Discoverable
 // trait.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Path(Vec<Node>);
 
 impl Path {

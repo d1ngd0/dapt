@@ -1,5 +1,9 @@
 use std::{collections::HashMap, fmt::Display, ops::Deref};
 
+use cityhash::city_hash_64;
+
+use dyn_clone::DynClone;
+
 use crate::{
     binary::OwnedAny,
     path::{node::FieldLiteral, parser::Node},
@@ -19,6 +23,7 @@ const FROM_SEP: &str = ",";
 const WHERE: &str = "WHERE";
 const HAVING: &str = "HAVING";
 const GROUP: &str = "GROUP";
+const BY: &str = "BY";
 const SUB_CONDITION: &str = "(";
 const SUB_CONDITION_END: &str = ")";
 const EQUAL: &str = "=";
@@ -69,18 +74,61 @@ impl<'a> From<&'a str> for Parser<'a> {
     }
 }
 
+#[derive(Clone)]
 struct Column {
     agg: Box<dyn Aggregation>,
     alias: Path,
 }
 
 struct GroupBy {
-    fields: Vec<Path>,
-    groups: HashMap<String, SelectClause>,
+    fields: Vec<Box<dyn Expression>>,
+    // here we keep a key for the series of fields, and the
+    // aggregation set we need to run for this series.
+    groups: HashMap<u64, SelectClause>,
+    template: SelectClause,
+}
+
+impl GroupBy {
+    pub fn process(&mut self, d: &Dapt) -> QueryResult<()> {
+        let mut hasher = Hasher::new();
+
+        for field in self.fields.iter() {
+            match field.evaluate(d) {
+                Some(val) => hasher.hash(&val),
+                None => hasher.hash(&Any::Null),
+            }
+        }
+
+        let hash = hasher.finish();
+        let group = if self.groups.contains_key(&hash) {
+            self.groups.get_mut(&hash).unwrap()
+        } else {
+            let group = self.template.clone();
+            self.groups.insert(hash, group);
+            self.groups.get_mut(&hash).unwrap()
+        };
+
+        group.process(d)
+    }
+
+    pub fn collect(&self, having: &WhereClause) -> QueryResult<Vec<Dapt>> {
+        let mut results = Vec::new();
+
+        for group in self.groups.values() {
+            let d = group.collect()?;
+            match having.filter(&d) {
+                Ok(true) => results.push(d),
+                Ok(false) => (),
+                // TODO: handle the error here.
+                Err(e) => (),
+            }
+        }
+
+        Ok(results)
+    }
 }
 
 pub struct Query {
-    select: SelectClause,
     from: FromClause,
     wherre: WhereClause,
     having: WhereClause,
@@ -104,18 +152,13 @@ impl Query {
 
     pub fn process(&mut self, d: &Dapt) -> QueryResult<()> {
         if self.wherre.filter(d)? {
-            self.select.process(d)?;
+            self.group.process(d)?;
         }
         Ok(())
     }
 
     pub fn collect(&self) -> QueryResult<Vec<Dapt>> {
-        let d = self.select.collect()?;
-        if self.having.filter(&d)? {
-            Ok(d)
-        } else {
-            Err(Error::NonExistentKey("no data found".to_string()))
-        }
+        self.group.collect(&self.having)
     }
 }
 
@@ -126,6 +169,7 @@ impl Query {
 // aggregation you can call process whenever you want the calculation to be done.
 // Many aggregations are set back to 0 or the default value after process is called.
 // so you can continue to use Select after collect is called.
+#[derive(Clone)]
 pub struct SelectClause {
     fields: Vec<Column>,
 }
@@ -157,7 +201,7 @@ impl SelectClause {
 
 // an aggregation taks multiple dapt packets through process
 // and returns the defined aggregation result as an Any type.
-trait Aggregation: std::fmt::Display {
+trait Aggregation: std::fmt::Display + DynClone {
     // process can be called multiple times
     fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()>;
 
@@ -166,6 +210,7 @@ trait Aggregation: std::fmt::Display {
     // to the final result.
     fn result<'a>(&'a self) -> QueryResult<Any<'a>>;
 }
+dyn_clone::clone_trait_object!(Aggregation);
 
 // Condition is a trait that defines a where clause condition, such as
 // `age = 10` or `name != "John"` though higher level objects implement
@@ -177,9 +222,10 @@ trait Condition {
 // Expression is a trait that takes in a dapt packet and returns an
 // optional value. This value can be Any type, which is what a dapt packet
 // can return.
-trait Expression: std::fmt::Display {
+trait Expression: std::fmt::Display + DynClone {
     fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>>;
 }
+dyn_clone::clone_trait_object!(Expression);
 
 // Conjunctions are used to combine conditions
 enum Conjunction {
@@ -276,11 +322,46 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let group = if let Some(GROUP) = self.lex.peak() {
+            self.parse_group(select)?
+        } else {
+            let mut groups = HashMap::new();
+            groups.insert(0, select.clone());
+
+            GroupBy {
+                fields: Vec::new(),
+                groups,
+                template: select,
+            }
+        };
+
         Ok(Query {
-            select,
             from,
             wherre: where_clause,
             having,
+            group,
+        })
+    }
+
+    pub fn parse_group(&mut self, select: SelectClause) -> QueryResult<GroupBy> {
+        self.consume_token(GROUP)?;
+        self.consume_token(BY)?;
+
+        let mut fields = Vec::new();
+        let groups = HashMap::new();
+        loop {
+            fields.push(self.parse_expression()?);
+            if let Some(FROM_SEP) = self.lex.peak() {
+                self.consume_token(FROM_SEP)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(GroupBy {
+            fields,
+            groups,
+            template: select,
         })
     }
 
@@ -816,6 +897,7 @@ struct DefaultExpressCondition {
 
 macro_rules! impl_math_op {
     ($name:ident, $op:tt) => {
+        #[derive(Clone)]
         struct $name {
             left: Box<dyn Expression>,
             right: Box<dyn Expression>,
@@ -1049,6 +1131,7 @@ impl Expression for Path {
     }
 }
 
+#[derive(Debug, Clone)]
 struct StringExpression {
     value: String,
 }
@@ -1065,6 +1148,7 @@ impl Display for StringExpression {
     }
 }
 
+#[derive(Debug, Clone)]
 struct NullExpression;
 
 impl Expression for NullExpression {
@@ -1079,6 +1163,7 @@ impl Display for NullExpression {
     }
 }
 
+#[derive(Debug, Clone)]
 struct BoolExpression {
     value: bool,
 }
@@ -1122,6 +1207,7 @@ impl Display for Number {
     }
 }
 
+#[derive(Clone)]
 struct MapLiteral(HashMap<String, Box<dyn Expression>>);
 
 impl Deref for MapLiteral {
@@ -1155,6 +1241,7 @@ impl Display for MapLiteral {
     }
 }
 
+#[derive(Clone)]
 struct ArrayLiteral(Vec<Box<dyn Expression>>);
 
 impl Deref for ArrayLiteral {
@@ -1195,6 +1282,7 @@ impl Display for ArrayLiteral {
     }
 }
 
+#[derive(Clone)]
 struct SumAggregation {
     value: Box<dyn Expression>,
     sum: Number,
@@ -1255,6 +1343,7 @@ impl Display for SumAggregation {
 
 // count aggregation will count the number of times an expression has a value
 // if no argument is given to count it will just count the number of lines
+#[derive(Clone)]
 struct CountAggregation {
     expr: Option<Box<dyn Expression>>,
     count: usize,
@@ -1304,6 +1393,7 @@ impl Aggregation for CountAggregation {
     }
 }
 
+#[derive(Clone)]
 struct ExpressionAggregation {
     expr: Box<dyn Expression>,
     value: Option<OwnedAny>,
@@ -1350,6 +1440,64 @@ impl Aggregation for ExpressionAggregation {
 impl Display for ExpressionAggregation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.expr)
+    }
+}
+
+struct Hasher {
+    state: u64,
+}
+
+impl Hasher {
+    fn new() -> Self {
+        Self { state: 0 }
+    }
+
+    fn hash(&mut self, a: &Any<'_>) {
+        match a {
+            Any::Null => self.hash_combine(0),
+            Any::Bool(b) => self.hash_combine(city_hash_64(&(*b as u8).to_ne_bytes())),
+            Any::USize(u) => self.hash_combine(city_hash_64(&u.to_ne_bytes())),
+            Any::ISize(i) => self.hash_combine(city_hash_64(&i.to_ne_bytes())),
+            Any::U128(u) => self.hash_combine(city_hash_64(&u.to_be_bytes())),
+            Any::I128(i) => self.hash_combine(city_hash_64(&i.to_be_bytes())),
+            Any::U64(u) => self.hash_combine(city_hash_64(&u.to_be_bytes())),
+            Any::I64(i) => self.hash_combine(city_hash_64(&i.to_be_bytes())),
+            Any::U32(u) => self.hash_combine(city_hash_64(&u.to_be_bytes())),
+            Any::I32(i) => self.hash_combine(city_hash_64(&i.to_be_bytes())),
+            Any::U16(u) => self.hash_combine(city_hash_64(&u.to_be_bytes())),
+            Any::I16(i) => self.hash_combine(city_hash_64(&i.to_be_bytes())),
+            Any::U8(u) => self.hash_combine(city_hash_64(&u.to_be_bytes())),
+            Any::I8(i) => self.hash_combine(city_hash_64(&i.to_be_bytes())),
+            Any::Char(c) => self.hash_combine(city_hash_64(&((*c) as u64).to_ne_bytes())),
+            Any::Bytes(b) => self.hash_combine(city_hash_64(*b)),
+            Any::F64(f) => self.hash_combine(city_hash_64(&f.to_ne_bytes())),
+            Any::F32(f) => self.hash_combine(city_hash_64(&f.to_ne_bytes())),
+            Any::Str(s) => self.hash_combine(city_hash_64(s.as_bytes())),
+            Any::Array(a) => {
+                for v in a {
+                    self.hash(v);
+                }
+            }
+            Any::Map(m) => {
+                for (k, v) in m.iter() {
+                    self.hash_combine(city_hash_64(k.as_bytes()));
+                    self.hash(v);
+                }
+            }
+        }
+    }
+
+    fn finish(self) -> u64 {
+        self.state
+    }
+
+    // https://stackoverflow.com/questions/5889238/why-is-xor-the-default-way-to-combine-hashes
+    fn hash_combine(&mut self, rhs: u64) {
+        self.state = self.state
+            ^ (rhs
+                .wrapping_add(0x517cc1b727220a95)
+                .wrapping_add(self.state << 6)
+                .wrapping_add(self.state >> 2))
     }
 }
 
@@ -1714,6 +1862,32 @@ mod tests {
             r#"{"a": 1}"#,
             r#"{"a": 2}"#,
             r#"{"a": 3}"#
+        );
+    }
+
+    macro_rules! assert_select {
+        ( $expr:expr, $expected:expr, $($source:expr),+) => {
+            let mut parser = Parser::from($expr);
+            let mut expr = parser.parse_query().unwrap();
+            let sources = vec![$(serde_json::from_str($source).unwrap()),+];
+            for d in sources {
+                expr.process(&d).unwrap();
+            }
+            let result = expr.collect().unwrap();
+            assert_eq!(serde_json::to_string(&result).unwrap(), $expected);
+        };
+    }
+
+    #[test]
+    fn test_query() {
+        assert_select!(
+            r#"SELECT sum("a") as "sum", count("a") as "count", "b" WHERE "a" > 1 GROUP BY "b" "#,
+            r#"[{"sum":2,"count":1,"b":"hi"},{"sum":7,"count":2,"b":"hello"}]"#,
+            // values
+            r#"{"a": 1, "b": "hi"}"#,
+            r#"{"a": 2, "b": "hi"}"#,
+            r#"{"a": 3, "b": "hello"}"#,
+            r#"{"a": 4, "b": "hello"}"#
         );
     }
 }
