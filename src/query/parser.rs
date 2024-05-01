@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, ops::Deref};
+use std::{cmp::Reverse, collections::HashMap, fmt::Display, ops::Deref};
 
 use cityhash::city_hash_64;
 
@@ -25,6 +25,8 @@ const HAVING: &str = "HAVING";
 const GROUP: &str = "GROUP";
 const ORDER: &str = "ORDER";
 const BY: &str = "BY";
+const ORDER_ASC: &str = "ASC";
+const ORDER_DESC: &str = "DESC";
 const SUB_CONDITION: &str = "(";
 const SUB_CONDITION_END: &str = ")";
 const EQUAL: &str = "=";
@@ -90,7 +92,17 @@ struct GroupBy {
 }
 
 struct OrderBy {
-    fields: Vec<Box<dyn Expression>>,
+    fields: Vec<OrderByColumn>,
+}
+
+struct OrderByColumn {
+    field: Box<dyn Expression>,
+    direction: OrderDirection,
+}
+
+enum OrderDirection {
+    Ascending,
+    Descending,
 }
 
 impl OrderBy {
@@ -100,10 +112,16 @@ impl OrderBy {
         }
 
         ds.sort_by(|a, b| {
-            for field in self.fields.iter() {
-                let a = field.evaluate(a).unwrap();
-                let b = field.evaluate(b).unwrap();
-                match a.partial_cmp(&b) {
+            for order_column in self.fields.iter() {
+                let a = order_column.field.evaluate(a).unwrap();
+                let b = order_column.field.evaluate(b).unwrap();
+
+                let cmp = match order_column.direction {
+                    OrderDirection::Ascending => a.partial_cmp(&b),
+                    OrderDirection::Descending => b.partial_cmp(&a),
+                };
+
+                match cmp {
                     Some(ord) => match ord {
                         std::cmp::Ordering::Equal => continue,
                         _ => return ord,
@@ -410,7 +428,29 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         loop {
-            fields.push(self.parse_expression()?);
+            let expr = self.parse_expression()?;
+
+            match self.lex.peak() {
+                Some(ORDER_ASC) => {
+                    fields.push(OrderByColumn {
+                        field: expr,
+                        direction: OrderDirection::Ascending,
+                    });
+                    self.consume_token(ORDER_ASC)?;
+                }
+                Some(ORDER_DESC) => {
+                    fields.push(OrderByColumn {
+                        field: expr,
+                        direction: OrderDirection::Descending,
+                    });
+                    self.consume_token(ORDER_DESC)?;
+                }
+                _ => fields.push(OrderByColumn {
+                    field: expr,
+                    direction: OrderDirection::Ascending,
+                }),
+            }
+
             if let Some(FROM_SEP) = self.lex.peak() {
                 self.consume_token(FROM_SEP)?;
             } else {
@@ -445,16 +485,8 @@ impl<'a> Parser<'a> {
             fields.push(self.parse_column()?);
             // peak at the next token to see what we should do
             match self.lex.peak() {
-                Some(FROM) => break,
-                Some(WHERE) => break,
                 Some(SELECT_SEP) => self.consume_token(SELECT_SEP)?,
-                None => break,
-                Some(tok) => {
-                    return Err(Error::with_history(
-                        &format!("expecting {SELECT_SEP} or end of select but found {tok}"),
-                        &self.lex,
-                    ))
-                }
+                _ => break,
             }
         }
 
@@ -1944,6 +1976,38 @@ mod tests {
             r#"{"a": 2, "b": "hi"}"#,
             r#"{"a": 3, "b": "hello"}"#,
             r#"{"a": 4, "b": "hello"}"#
+        );
+
+        assert_select!(
+            r#" select sum("a") as "sum", "b" GROUP BY "b" ORDER BY "sum" DESC "#,
+            r#"[{"sum":95,"b":"hi"},{"sum":3,"b":"hello"}]"#,
+            // values
+            r#"{"a": 1, "b": "hello"}"#,
+            r#"{"a": 2, "b": "hello"}"#,
+            r#"{"a": 3, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#
         );
     }
 }
