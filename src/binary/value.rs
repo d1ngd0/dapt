@@ -390,6 +390,53 @@ pub enum OwnedAny {
     Null,
 }
 
+// This could be a lot better. We should turn numbers into strings maybe?
+impl PartialOrd for Any<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self {
+            Any::USize(a) => Number::USize(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::U8(a) => Number::U8(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::U16(a) => Number::U16(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::U32(a) => Number::U32(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::U64(a) => Number::U64(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::U128(a) => Number::U128(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::ISize(a) => Number::ISize(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::I8(a) => Number::I8(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::I16(a) => Number::I16(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::I32(a) => Number::I32(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::I64(a) => Number::I64(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::I128(a) => Number::I128(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::F32(a) => Number::F32(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::F64(a) => Number::F64(*a).partial_cmp(&Number::try_from(other).ok()?),
+            Any::Str(a) => a.partial_cmp(match other {
+                Any::Str(b) => b,
+                _ => return None,
+            }),
+            Any::Null => match other {
+                Any::Null => Some(Ordering::Equal),
+                _ => Some(Ordering::Less),
+            },
+            Any::Bytes(a) => a.partial_cmp(match other {
+                Any::Bytes(b) => b,
+                _ => return None,
+            }),
+            Any::Char(a) => a.partial_cmp(match other {
+                Any::Char(b) => b,
+                _ => return None,
+            }),
+            Any::Bool(a) => a.partial_cmp(match other {
+                Any::Bool(b) => b,
+                _ => return None,
+            }),
+            Any::Array(a) => a.partial_cmp(match other {
+                Any::Array(b) => b,
+                _ => return None,
+            }),
+            _ => None,
+        }
+    }
+}
+
 impl From<Any<'_>> for OwnedAny {
     fn from(value: Any) -> Self {
         match value {

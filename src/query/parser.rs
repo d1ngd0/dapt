@@ -23,6 +23,7 @@ const FROM_SEP: &str = ",";
 const WHERE: &str = "WHERE";
 const HAVING: &str = "HAVING";
 const GROUP: &str = "GROUP";
+const ORDER: &str = "ORDER";
 const BY: &str = "BY";
 const SUB_CONDITION: &str = "(";
 const SUB_CONDITION_END: &str = ")";
@@ -88,6 +89,34 @@ struct GroupBy {
     template: SelectClause,
 }
 
+struct OrderBy {
+    fields: Vec<Box<dyn Expression>>,
+}
+
+impl OrderBy {
+    pub fn sort(&self, ds: &mut [Dapt]) {
+        if self.fields.is_empty() {
+            return;
+        }
+
+        ds.sort_by(|a, b| {
+            for field in self.fields.iter() {
+                let a = field.evaluate(a).unwrap();
+                let b = field.evaluate(b).unwrap();
+                match a.partial_cmp(&b) {
+                    Some(ord) => match ord {
+                        std::cmp::Ordering::Equal => continue,
+                        _ => return ord,
+                    },
+                    None => continue,
+                }
+            }
+
+            std::cmp::Ordering::Equal
+        });
+    }
+}
+
 impl GroupBy {
     pub fn process(&mut self, d: &Dapt) -> QueryResult<()> {
         let mut hasher = Hasher::new();
@@ -133,6 +162,7 @@ pub struct Query {
     wherre: WhereClause,
     having: WhereClause,
     group: GroupBy,
+    order: OrderBy,
 }
 
 struct FromClause(Vec<String>);
@@ -158,7 +188,9 @@ impl Query {
     }
 
     pub fn collect(&self) -> QueryResult<Vec<Dapt>> {
-        self.group.collect(&self.having)
+        let mut set = self.group.collect(&self.having)?;
+        self.order.sort(&mut set);
+        Ok(set)
     }
 }
 
@@ -335,11 +367,18 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let order = if let Some(ORDER) = self.lex.peak() {
+            self.parse_order()?
+        } else {
+            OrderBy { fields: Vec::new() }
+        };
+
         Ok(Query {
             from,
             wherre: where_clause,
             having,
             group,
+            order,
         })
     }
 
@@ -363,6 +402,23 @@ impl<'a> Parser<'a> {
             groups,
             template: select,
         })
+    }
+
+    pub fn parse_order(&mut self) -> QueryResult<OrderBy> {
+        self.consume_token(ORDER)?;
+        self.consume_token(BY)?;
+
+        let mut fields = Vec::new();
+        loop {
+            fields.push(self.parse_expression()?);
+            if let Some(FROM_SEP) = self.lex.peak() {
+                self.consume_token(FROM_SEP)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(OrderBy { fields })
     }
 
     pub fn parse_from(&mut self) -> QueryResult<FromClause> {
@@ -1881,8 +1937,8 @@ mod tests {
     #[test]
     fn test_query() {
         assert_select!(
-            r#"SELECT sum("a") as "sum", count("a") as "count", "b" WHERE "a" > 1 GROUP BY "b" "#,
-            r#"[{"sum":2,"count":1,"b":"hi"},{"sum":7,"count":2,"b":"hello"}]"#,
+            r#"SELECT sum("a") as "sum", count("a") as "count", "b" WHERE "a" > 1 GROUP BY "b" ORDER BY "b" "#,
+            r#"[{"sum":7,"count":2,"b":"hello"},{"sum":2,"count":1,"b":"hi"}]"#,
             // values
             r#"{"a": 1, "b": "hi"}"#,
             r#"{"a": 2, "b": "hi"}"#,
