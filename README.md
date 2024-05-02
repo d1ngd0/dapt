@@ -106,3 +106,88 @@ When we ask serde to serialize this, dapt realizes that it points to multiple lo
 - Regex: ex. `/^host.*/.name` Matches all fields that match the regex. The regex is a rust regex, and is matched against the field name
 - First: ex. `host.{name,ip.*}` Matches the first node that returns values. Each child of a match is a full path. If the child *could* match multiple values, it will still only match the first value.
 - Multi: ex. `host.(name|ip.*)` Matches all paths specified
+
+# Query Features
+
+dapt has query features which are defined in the `query` module. You can use the `Select` struct to aggregate data, the `Filter` struct to filter data, or the `Query` filter to utilize an implementation of SQL like queries.
+
+## Query
+
+I could tease you with filters and aggregations first, but lets just show off what we can do. Let's say you have data coming in which has something like the following structure:
+
+```json
+{
+  "tickets_purchased": "3",
+  "state": "NY",
+  "name": "John Doe",
+  "purchase_date": "2021-01-01",
+}
+```
+
+You could then write a query such as:
+
+```SQL
+SELECT
+  sum("tickets_purchased") as "total.tickets",
+  count() as "total.purchases",
+  "name"
+WHERE
+  "state" IN ['NY', 'CA']
+HAVING "total_tickets" > 20
+GROUP BY "name"
+ORDER BY "total_tickets" DESC
+TOP 3
+```
+
+This query would return something similar to:
+
+```json
+[
+  {
+    "total": {
+      "tickets": 30,
+      "purchases": 10
+    },
+    "name": "John Doe"
+  },
+  {
+    "total": {
+      "tickets": 25,
+      "purchases": 5
+    },
+    "name": "Jane Doe"
+  },
+  {
+    "total": {
+      "tickets": 20,
+      "purchases": 5
+    },
+    "name": "John Smith"
+  }
+]
+```
+
+The interface for creating a query and collecting data is quite easy:
+
+```rust
+use dapt::query::Query;
+use dapt::Dapt;
+
+fn main() {
+  let q = Query::new("SELECT sum(\"tickets_purchased\") as \"total.tickets\", count() as \"total.purchases\", \"name\" WHERE \"state\" IN ['NY', 'CA'] HAVING \"total.tickets\" > 20 GROUP BY \"name\" ORDER BY \"total.tickets\" DESC TOP 3");
+
+  // load up some data
+  let data: Vec<Dapt> = vec![
+    serde_json::from_str(r#"{"tickets_purchased": "3", "state": "NY", "name": "John Doe", "purchase_date": "2021-01-01"}"#).unwrap(),
+    serde_json::from_str(r#"{"tickets_purchased": "30", "state": "NY", "name": "John Doe", "purchase_date": "2021-01-01"}"#).unwrap(),
+    serde_json::from_str(r#"{"tickets_purchased": "25", "state": "NY", "name": "Jane Doe", "purchase_date": "2021-01-01"}"#).unwrap(),
+    serde_json::from_str(r#"{"tickets_purchased": "20", "state": "NY", "name": "John Smith", "purchase_date": "2021-01-01"}"#).unwrap(),
+  ];
+
+  for d in data {
+    q.process(d);
+  }
+
+  let results = q.results();
+}
+```
