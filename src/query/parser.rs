@@ -27,6 +27,7 @@ const ORDER: &str = "ORDER";
 const BY: &str = "BY";
 const ORDER_ASC: &str = "ASC";
 const ORDER_DESC: &str = "DESC";
+const TOP: &str = "TOP";
 const SUB_CONDITION: &str = "(";
 const SUB_CONDITION_END: &str = ")";
 const EQUAL: &str = "=";
@@ -105,6 +106,10 @@ enum OrderDirection {
     Descending,
 }
 
+struct Top {
+    count: usize,
+}
+
 impl OrderBy {
     pub fn sort(&self, ds: &mut [Dapt]) {
         if self.fields.is_empty() {
@@ -181,6 +186,7 @@ pub struct Query {
     having: WhereClause,
     group: GroupBy,
     order: OrderBy,
+    top: Option<Top>,
 }
 
 struct FromClause(Vec<String>);
@@ -208,6 +214,11 @@ impl Query {
     pub fn collect(&self) -> QueryResult<Vec<Dapt>> {
         let mut set = self.group.collect(&self.having)?;
         self.order.sort(&mut set);
+
+        if let Some(top) = &self.top {
+            set.truncate(top.count);
+        }
+
         Ok(set)
     }
 }
@@ -391,13 +402,26 @@ impl<'a> Parser<'a> {
             OrderBy { fields: Vec::new() }
         };
 
+        let top = if let Some(TOP) = self.lex.peak() {
+            Some(self.parse_top()?)
+        } else {
+            None
+        };
+
         Ok(Query {
             from,
             wherre: where_clause,
             having,
             group,
             order,
+            top,
         })
+    }
+
+    pub fn parse_top(&mut self) -> QueryResult<Top> {
+        self.consume_token(TOP)?;
+        let count = self.parse_positive_number()?;
+        Ok(Top { count })
     }
 
     pub fn parse_group(&mut self, select: SelectClause) -> QueryResult<GroupBy> {
@@ -913,6 +937,21 @@ impl<'a> Parser<'a> {
             }
             _ => Err(Error::with_history(
                 &format!("unexpected token {}", left),
+                &self.lex,
+            )),
+        }
+    }
+
+    fn parse_positive_number(&mut self) -> QueryResult<usize> {
+        let tok = self
+            .lex
+            .token()
+            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+
+        match tok.parse::<usize>() {
+            Ok(num) => Ok(num),
+            Err(e) => Err(Error::with_history(
+                &format!("expected number but got {}", e),
                 &self.lex,
             )),
         }
@@ -1981,6 +2020,71 @@ mod tests {
         assert_select!(
             r#" select sum("a") as "sum", "b" GROUP BY "b" ORDER BY "sum" DESC "#,
             r#"[{"sum":95,"b":"hi"},{"sum":3,"b":"hello"}]"#,
+            // values
+            r#"{"a": 1, "b": "hello"}"#,
+            r#"{"a": 2, "b": "hello"}"#,
+            r#"{"a": 3, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#
+        );
+
+        assert_select!(
+            r#" select sum("a") as "sum", "b" GROUP BY "b" ORDER BY "sum" DESC TOP 1"#,
+            r#"[{"sum":95,"b":"hi"}]"#,
+            // values
+            r#"{"a": 1, "b": "hello"}"#,
+            r#"{"a": 2, "b": "hello"}"#,
+            r#"{"a": 3, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#,
+            r#"{"a": 4, "b": "hi"}"#
+        );
+
+        // most simple
+        assert_select!(
+            r#" select count() as "count" "#,
+            r#"[{"count":26}]"#,
             // values
             r#"{"a": 1, "b": "hello"}"#,
             r#"{"a": 2, "b": "hello"}"#,
