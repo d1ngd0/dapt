@@ -17,12 +17,29 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn with_history(msg: &str, lex: &Lexer) -> Self {
-        Error::InvalidQuery(format!("{}: {}", msg, lex.consumed()))
+    pub fn with_history(msg: &str, history: History<'_>) -> Self {
+        Error::InvalidQuery(format!("{}: {}", msg, history))
     }
 
-    pub fn unexpected_eof(lex: &Lexer) -> Self {
-        Error::UnexpectedEOF(format!("unexpected EOF at: {}", lex.consumed()))
+    pub fn unexpected_eof(history: History<'_>) -> Self {
+        Error::UnexpectedEOF(format!("unexpected EOF at: {}", history))
+    }
+}
+
+// History is used to wrap the content the lexor has already consumed. By making
+// this a type it is more likely that a developer in the future won't supply something
+// other than that, causing confusing error messages.
+pub struct History<'a>(&'a str);
+
+impl Display for History<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl<'a> History<'a> {
+    pub fn new(s: &'a str) -> Self {
+        Self(s)
     }
 }
 

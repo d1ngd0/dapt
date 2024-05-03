@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::HashMap,
+    fmt::Display,
     mem,
     ops::{Add, Div, Mul, Rem, Sub},
 };
@@ -265,6 +266,27 @@ pub enum Number {
     I128(i128),
     F32(f32),
     F64(f64),
+}
+
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number::USize(u) => write!(f, "{}", u),
+            Number::ISize(i) => write!(f, "{}", i),
+            Number::U128(u) => write!(f, "{}", u),
+            Number::I128(i) => write!(f, "{}", i),
+            Number::U64(u) => write!(f, "{}", u),
+            Number::I64(i) => write!(f, "{}", i),
+            Number::U32(u) => write!(f, "{}", u),
+            Number::I32(i) => write!(f, "{}", i),
+            Number::U16(u) => write!(f, "{}", u),
+            Number::I16(i) => write!(f, "{}", i),
+            Number::U8(u) => write!(f, "{}", u),
+            Number::I8(i) => write!(f, "{}", i),
+            Number::F64(fl) => write!(f, "{}", fl),
+            Number::F32(fl) => write!(f, "{}", fl),
+        }
+    }
 }
 
 impl Number {

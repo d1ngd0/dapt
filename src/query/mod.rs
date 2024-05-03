@@ -1,4 +1,7 @@
+mod aggregation;
+mod condition;
 mod error;
+mod expression;
 mod lexor;
 mod parser;
 

@@ -11,133 +11,91 @@ use crate::{
 };
 
 use super::{
-    error::{Error, QueryResult},
+    aggregation::{Aggregation, CountAggregation, ExpressionAggregation, SumAggregation},
+    condition::{
+        Condition, DefaultExpressCondition, EqualsCondition, GreaterThanCondition,
+        GreaterThanEqualCondition, InCondition, LessThanCondition, LessThanEqualCondition,
+        NoopCondition, NotEqualsCondition,
+    },
+    error::{Error, History, QueryResult},
+    expression::{
+        AddExpression, ArrayLiteral, BoolExpression, DivideExpression, Expression, MapLiteral,
+        ModulusExpression, MultiplyExpression, NullExpression, NumberExpression, PathExpression,
+        StringExpression, SubtractExpression,
+    },
     lexor::Lexer,
 };
 
-const SELECT: &str = "SELECT";
-const SELECT_SEP: &str = ",";
-const SELECT_ALIAS: &str = "AS";
-const FROM: &str = "FROM";
-const FROM_SEP: &str = ",";
-const WHERE: &str = "WHERE";
-const HAVING: &str = "HAVING";
-const GROUP: &str = "GROUP";
-const ORDER: &str = "ORDER";
-const BY: &str = "BY";
-const ORDER_ASC: &str = "ASC";
-const ORDER_DESC: &str = "DESC";
-const TOP: &str = "TOP";
-const SUB_CONDITION: &str = "(";
-const SUB_CONDITION_END: &str = ")";
-const EQUAL: &str = "=";
-const EQUAL_DOUBLE: &str = "==";
-const NOT_EQUAL: &str = "!=";
-const IN: &str = "IN";
-const GREATER_THAN: &str = ">";
-const LESS_THAN: &str = "<";
-const GREATER_THAN_EQUAL: &str = ">=";
-const LESS_THAN_EQUAL: &str = "<=";
-const AND: &str = "AND";
-const OR: &str = "OR";
-const KEY_WRAP: &str = "\"";
-const STRING_WRAP: &str = "'";
-const NULL: &str = "NULL";
-const TRUE: &str = "TRUE";
-const FALSE: &str = "FALSE";
-const MAP_WRAP: &str = "{";
-const MAP_WRAP_END: &str = "}";
-const MAP_CHILD_SET: &str = ":";
-const MAP_CHILD_SEP: &str = ",";
-const ARRAY_WRAP: &str = "[";
-const ARRAY_WRAP_END: &str = "]";
-const ARRAY_CHILD_SEP: &str = ",";
+pub const SELECT: &str = "SELECT";
+pub const SELECT_SEP: &str = ",";
+pub const SELECT_ALIAS: &str = "AS";
+pub const FROM: &str = "FROM";
+pub const FROM_SEP: &str = ",";
+pub const WHERE: &str = "WHERE";
+pub const HAVING: &str = "HAVING";
+pub const GROUP: &str = "GROUP";
+pub const ORDER: &str = "ORDER";
+pub const BY: &str = "BY";
+pub const ORDER_ASC: &str = "ASC";
+pub const ORDER_DESC: &str = "DESC";
+pub const TOP: &str = "TOP";
+pub const SUB_CONDITION: &str = "(";
+pub const SUB_CONDITION_END: &str = ")";
+pub const EQUAL: &str = "=";
+pub const EQUAL_DOUBLE: &str = "==";
+pub const NOT_EQUAL: &str = "!=";
+pub const IN: &str = "IN";
+pub const GREATER_THAN: &str = ">";
+pub const LESS_THAN: &str = "<";
+pub const GREATER_THAN_EQUAL: &str = ">=";
+pub const LESS_THAN_EQUAL: &str = "<=";
+pub const AND: &str = "AND";
+pub const OR: &str = "OR";
+pub const KEY_WRAP: &str = "\"";
+pub const STRING_WRAP: &str = "'";
+pub const NULL: &str = "NULL";
+pub const TRUE: &str = "TRUE";
+pub const FALSE: &str = "FALSE";
+pub const MAP_WRAP: &str = "{";
+pub const MAP_WRAP_END: &str = "}";
+pub const MAP_CHILD_SET: &str = ":";
+pub const MAP_CHILD_SEP: &str = ",";
+pub const ARRAY_WRAP: &str = "[";
+pub const ARRAY_WRAP_END: &str = "]";
+pub const ARRAY_CHILD_SEP: &str = ",";
 
-const FN_OPEN: &str = "(";
-const FN_CLOSE: &str = ")";
-const FN_SEP: &str = ",";
+pub const FN_OPEN: &str = "(";
+pub const FN_CLOSE: &str = ")";
+pub const FN_SEP: &str = ",";
 
-const FN_ADD: &str = "ADD";
-const FN_MINUS: &str = "NEG";
-const FN_MULTIPLY: &str = "MUL";
-const FN_DIVIDE: &str = "DIV";
-const FN_MODULUS: &str = "MOD";
+pub const FN_ADD: &str = "ADD";
+pub const FN_MINUS: &str = "NEG";
+pub const FN_MULTIPLY: &str = "MUL";
+pub const FN_DIVIDE: &str = "DIV";
+pub const FN_MODULUS: &str = "MOD";
 
-const AGGREGATION_SUM: &str = "SUM";
-const AGGREGATION_COUNT: &str = "COUNT";
+pub const AGGREGATION_SUM: &str = "SUM";
+pub const AGGREGATION_COUNT: &str = "COUNT";
 
-struct Parser<'a> {
-    lex: Lexer<'a>,
-}
-
-impl<'a> From<&'a str> for Parser<'a> {
-    fn from(s: &'a str) -> Parser<'a> {
-        Parser {
-            lex: Lexer::from(s),
-        }
-    }
-}
-
+// Column holds the aggregation and it's alias. It is the sum("key") as "sum"
+// part of a query. The alias is a path, since paths have the `Aquire` trait which
+// allows them to be created in a new dapt packet
 #[derive(Clone)]
 struct Column {
     agg: Box<dyn Aggregation>,
     alias: Path,
 }
 
+// Group by holds an array of expressions, which are the values we will group by,
+// a template which holds a select clause to be cloned for each new unique set of
+// group by values, and finally a hashmap, which holds a select clause for each group
+// the key is a hash of the group by values.
 struct GroupBy {
     fields: Vec<Box<dyn Expression>>,
     // here we keep a key for the series of fields, and the
     // aggregation set we need to run for this series.
-    groups: HashMap<u64, SelectClause>,
     template: SelectClause,
-}
-
-struct OrderBy {
-    fields: Vec<OrderByColumn>,
-}
-
-struct OrderByColumn {
-    field: Box<dyn Expression>,
-    direction: OrderDirection,
-}
-
-enum OrderDirection {
-    Ascending,
-    Descending,
-}
-
-struct Top {
-    count: usize,
-}
-
-impl OrderBy {
-    pub fn sort(&self, ds: &mut [Dapt]) {
-        if self.fields.is_empty() {
-            return;
-        }
-
-        ds.sort_by(|a, b| {
-            for order_column in self.fields.iter() {
-                let a = order_column.field.evaluate(a).unwrap();
-                let b = order_column.field.evaluate(b).unwrap();
-
-                let cmp = match order_column.direction {
-                    OrderDirection::Ascending => a.partial_cmp(&b),
-                    OrderDirection::Descending => b.partial_cmp(&a),
-                };
-
-                match cmp {
-                    Some(ord) => match ord {
-                        std::cmp::Ordering::Equal => continue,
-                        _ => return ord,
-                    },
-                    None => continue,
-                }
-            }
-
-            std::cmp::Ordering::Equal
-        });
-    }
+    groups: HashMap<u64, SelectClause>,
 }
 
 impl GroupBy {
@@ -180,15 +138,64 @@ impl GroupBy {
     }
 }
 
-pub struct Query {
-    from: FromClause,
-    wherre: WhereClause,
-    having: WhereClause,
-    group: GroupBy,
-    order: OrderBy,
-    top: Option<Top>,
+// OrderBy is used to sort the final result set. It holds a vector of OrderByColumn
+// which is an expression and a direction
+struct OrderBy {
+    fields: Vec<OrderByColumn>,
 }
 
+impl OrderBy {
+    pub fn sort(&self, ds: &mut [Dapt]) {
+        if self.fields.is_empty() {
+            return;
+        }
+
+        ds.sort_by(|a, b| {
+            for order_column in self.fields.iter() {
+                let a = order_column.field.evaluate(a).unwrap();
+                let b = order_column.field.evaluate(b).unwrap();
+
+                let cmp = match order_column.direction {
+                    OrderDirection::Ascending => a.partial_cmp(&b),
+                    OrderDirection::Descending => b.partial_cmp(&a),
+                };
+
+                match cmp {
+                    Some(ord) => match ord {
+                        std::cmp::Ordering::Equal => continue,
+                        _ => return ord,
+                    },
+                    None => continue,
+                }
+            }
+
+            std::cmp::Ordering::Equal
+        });
+    }
+}
+
+// OrderByColumn holds an expression and a direction, which is either ascending or
+// descending
+struct OrderByColumn {
+    field: Box<dyn Expression>,
+    direction: OrderDirection,
+}
+
+// OrderDirection is used for order by, Ascending or Descending
+enum OrderDirection {
+    Ascending,
+    Descending,
+}
+
+// TOP is used at the very end, when used with Order By it can be used to get
+// a top subset of the values returned by the query.
+struct Top {
+    count: usize,
+}
+
+// From isn't really used, at least within the query, but it is optionally
+// available in the query so it can be used outside to pull in appropriate
+// data. It allows for specifying multiple sources.
 struct FromClause(Vec<String>);
 
 impl FromClause {
@@ -196,6 +203,19 @@ impl FromClause {
         let mut parser = Parser::from(str);
         parser.parse_from()
     }
+}
+
+// Query is the parsed representation of a query. It holds a from, where, having
+// group by (which houses the select clause), order by and top. The only thing required
+// to parse a query is the `SELECT` portion of the query. The rest is optional.
+// if not specified a No Op where, having, group by, order by are created.
+pub struct Query {
+    from: FromClause,
+    wherre: WhereClause,
+    having: WhereClause,
+    group: GroupBy,
+    order: OrderBy,
+    top: Option<Top>,
 }
 
 impl Query {
@@ -260,35 +280,8 @@ impl SelectClause {
     }
 }
 
-// an aggregation taks multiple dapt packets through process
-// and returns the defined aggregation result as an Any type.
-trait Aggregation: std::fmt::Display + DynClone {
-    // process can be called multiple times
-    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()>;
-
-    // result returns the aggregation result, were applicable, we should
-    // return NotFound, which is handled by select by not adding the column
-    // to the final result.
-    fn result<'a>(&'a self) -> QueryResult<Any<'a>>;
-}
-dyn_clone::clone_trait_object!(Aggregation);
-
-// Condition is a trait that defines a where clause condition, such as
-// `age = 10` or `name != "John"` though higher level objects implement
-// this trait as well.
-trait Condition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool>;
-}
-
-// Expression is a trait that takes in a dapt packet and returns an
-// optional value. This value can be Any type, which is what a dapt packet
-// can return.
-trait Expression: std::fmt::Display + DynClone {
-    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>>;
-}
-dyn_clone::clone_trait_object!(Expression);
-
-// Conjunctions are used to combine conditions
+// Conjunctions are used to combine conditions. So you can have a == b AND c == d
+// Conjuctions are a single condition, or an AND or OR of two conditions.
 enum Conjunction {
     Single(Box<dyn Condition>),
     And {
@@ -331,6 +324,9 @@ impl Condition for Conjunction {
     }
 }
 
+// WhereClause is used to filter dapt packets before passing into an aggregation.
+// The clause is just a conjuntion, which creates a left right tree of conditions.
+// it exists to provide a public interface to the conjunction
 pub struct WhereClause {
     condition: Conjunction,
 }
@@ -346,7 +342,33 @@ impl WhereClause {
     }
 }
 
+// Parser is used to parse a query string into a query struct, it produces all
+// sorts of interior structs as well.
+pub struct Parser<'a> {
+    lex: Lexer<'a>,
+}
+
+impl<'a> From<&'a str> for Parser<'a> {
+    fn from(s: &'a str) -> Parser<'a> {
+        Parser {
+            lex: Lexer::from(s),
+        }
+    }
+}
+
 impl<'a> Parser<'a> {
+    pub fn peak(&mut self) -> Option<&str> {
+        self.lex.peak()
+    }
+
+    pub fn token(&mut self) -> Option<&str> {
+        self.lex.token()
+    }
+
+    pub fn consumed(&self) -> History {
+        History::new(self.lex.consumed())
+    }
+
     pub fn parse_query(&mut self) -> QueryResult<Query> {
         let select = self.parse_select()?;
 
@@ -365,9 +387,7 @@ impl<'a> Parser<'a> {
         } else {
             // this always evaluates to true
             WhereClause {
-                condition: Conjunction::Single(Box::new(DefaultExpressCondition {
-                    expr: Box::new(BoolExpression { value: true }),
-                })),
+                condition: Conjunction::Single(Box::new(NoopCondition::default())),
             }
         };
 
@@ -377,9 +397,7 @@ impl<'a> Parser<'a> {
         } else {
             // this always evaluates to true
             WhereClause {
-                condition: Conjunction::Single(Box::new(DefaultExpressCondition {
-                    expr: Box::new(BoolExpression { value: true }),
-                })),
+                condition: Conjunction::Single(Box::new(NoopCondition::default())),
             }
         };
 
@@ -539,7 +557,7 @@ impl<'a> Parser<'a> {
         let tok = self
             .lex
             .peak()
-            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
 
         match tok.to_uppercase().as_str() {
             AGGREGATION_SUM => Ok(Box::new(SumAggregation::from_parser(self)?)),
@@ -552,13 +570,13 @@ impl<'a> Parser<'a> {
         let tok = self
             .lex
             .token()
-            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
 
         match tok {
             HAVING => Ok(WhereClause {
                 condition: self.parse_conjunction()?,
             }),
-            _ => Err(Error::with_history("expected HAVING", &self.lex)),
+            _ => Err(Error::with_history("expected HAVING", self.consumed())),
         }
     }
 
@@ -566,13 +584,13 @@ impl<'a> Parser<'a> {
         let tok = self
             .lex
             .token()
-            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
 
         match tok {
             WHERE => Ok(WhereClause {
                 condition: self.parse_conjunction()?,
             }),
-            _ => Err(Error::with_history("expected WHERE", &self.lex)),
+            _ => Err(Error::with_history("expected WHERE", self.consumed())),
         }
     }
 
@@ -622,15 +640,15 @@ impl<'a> Parser<'a> {
     pub fn parse_condition(&mut self) -> QueryResult<Box<dyn Condition>> {
         // check for EOF or a subcondition
         match self.lex.peak() {
-            None => return Err(Error::unexpected_eof(&self.lex)),
+            None => return Err(Error::unexpected_eof(self.consumed())),
             Some(SUB_CONDITION) => {
                 let _ = self.lex.token(); // consume the (
                 let condition = self.parse_conjunction()?;
 
                 match self.lex.token() {
-                    None => return Err(Error::unexpected_eof(&self.lex)),
+                    None => return Err(Error::unexpected_eof(self.consumed())),
                     Some(SUB_CONDITION_END) => (),
-                    _ => return Err(Error::with_history("expected )", &self.lex)),
+                    _ => return Err(Error::with_history("expected )", self.consumed())),
                 }
 
                 return Ok(Box::new(condition));
@@ -642,9 +660,7 @@ impl<'a> Parser<'a> {
 
         // check for EOF (which could be expected this time) or an AND or OR
         match self.lex.peak() {
-            None | Some(OR) | Some(AND) => {
-                return Ok(Box::new(DefaultExpressCondition { expr: left }))
-            }
+            None | Some(OR) | Some(AND) => return Ok(Box::new(DefaultExpressCondition::new(left))),
             _ => (),
         };
 
@@ -655,42 +671,42 @@ impl<'a> Parser<'a> {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{EQUAL} expects expressions on both sides").as_str(),
-                            &self.lex,
+                            self.consumed(),
                         ))
                     }
                     Err(e) => return Err(e),
                     Ok(r) => r,
                 };
 
-                Ok(Box::new(EqualsCondition { left, right }))
+                Ok(Box::new(EqualsCondition::new(left, right)))
             }
             NOT_EQUAL => {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{NOT_EQUAL} expects expressions on both sides").as_str(),
-                            &self.lex,
+                            self.consumed(),
                         ))
                     }
                     Err(e) => return Err(e),
                     Ok(r) => r,
                 };
 
-                Ok(Box::new(NotEqualsCondition { left, right }))
+                Ok(Box::new(NotEqualsCondition::new(left, right)))
             }
             GREATER_THAN => {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{GREATER_THAN} expects expressions on both sides").as_str(),
-                            &self.lex,
+                            self.consumed(),
                         ))
                     }
                     Err(e) => return Err(e),
                     Ok(r) => r,
                 };
 
-                Ok(Box::new(GreaterThanCondition { left, right }))
+                Ok(Box::new(GreaterThanCondition::new(left, right)))
             }
             GREATER_THAN_EQUAL => {
                 let right = match self.parse_expression() {
@@ -698,246 +714,94 @@ impl<'a> Parser<'a> {
                         return Err(Error::with_history(
                             format!("{GREATER_THAN_EQUAL} expects expressions on both sides")
                                 .as_str(),
-                            &self.lex,
+                            self.consumed(),
                         ))
                     }
                     Err(e) => return Err(e),
                     Ok(r) => r,
                 };
 
-                Ok(Box::new(GreaterThanEqualCondition { left, right }))
+                Ok(Box::new(GreaterThanEqualCondition::new(left, right)))
             }
             LESS_THAN => {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             "equals expects expressions on both sides",
-                            &self.lex,
+                            self.consumed(),
                         ))
                     }
                     Err(e) => return Err(e),
                     Ok(r) => r,
                 };
 
-                Ok(Box::new(LessThanCondition { left, right }))
+                Ok(Box::new(LessThanCondition::new(left, right)))
             }
             LESS_THAN_EQUAL => {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{LESS_THAN_EQUAL} expects expressions on both sides").as_str(),
-                            &self.lex,
+                            self.consumed(),
                         ))
                     }
                     Err(e) => return Err(e),
                     Ok(r) => r,
                 };
 
-                Ok(Box::new(LessThanEqualCondition { left, right }))
+                Ok(Box::new(LessThanEqualCondition::new(left, right)))
             }
             IN => {
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{IN} expects expressions on both sides").as_str(),
-                            &self.lex,
+                            self.consumed(),
                         ))
                     }
                     Err(e) => return Err(e),
                     Ok(r) => r,
                 };
 
-                Ok(Box::new(InCondition { left, right }))
+                Ok(Box::new(InCondition::new(left, right)))
             }
             other => Err(Error::with_history(
                 &format!("expected comparison operator, AND or OR got \"{}\"", other),
-                &self.lex,
+                self.consumed(),
             )),
         }
     }
 
-    fn parse_expression(&mut self) -> QueryResult<Box<dyn Expression>> {
+    pub fn parse_expression(&mut self) -> QueryResult<Box<dyn Expression>> {
         let left = self
             .lex
-            .token()
-            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+            .peak()
+            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
 
         match left.to_uppercase().as_str() {
-            KEY_WRAP => {
-                let key = self
-                    .lex
-                    .token()
-                    .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
-
-                let path = Path::try_from(key)
-                    .map_err(|e| Error::with_history(&e.to_string(), &self.lex))?;
-
-                // consume the final " token, and return. If we get a different token
-                // or hit EOF we can return an error
-                match self.lex.token() {
-                    Some(KEY_WRAP) => Ok(Box::new(path)),
-                    Some(tok) => Err(Error::with_history(
-                        &format!("expected {KEY_WRAP} but got {tok}"),
-                        &self.lex,
-                    )),
-                    None => Err(Error::unexpected_eof(&self.lex)),
-                }
-            }
-            STRING_WRAP => {
-                let value = self
-                    .lex
-                    .token()
-                    .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
-
-                // consume the final " token, and return. If we get a different token
-                // or hit EOF we can return an error
-                match self.lex.token() {
-                    Some(STRING_WRAP) => Ok(Box::new(StringExpression {
-                        value: value.to_string(),
-                    })),
-                    Some(tok) => Err(Error::with_history(
-                        &format!("expected {STRING_WRAP} but got {tok}"),
-                        &self.lex,
-                    )),
-                    None => Err(Error::unexpected_eof(&self.lex)),
-                }
-            }
-            MAP_WRAP => {
-                let mut map = HashMap::new();
-                loop {
-                    // pase 'key': <expression>
-                    let key = self.parse_string(KEY_WRAP)?;
-                    self.consume_token(MAP_CHILD_SET)?;
-                    let value = self.parse_expression()?;
-
-                    map.insert(key, value);
-
-                    match self.lex.token() {
-                        Some(MAP_WRAP_END) => break,
-                        Some(MAP_CHILD_SEP) => continue,
-                        Some(tok) => {
-                            return Err(Error::with_history(
-                                &format!(
-                                    "expected {MAP_CHILD_SEP} or {MAP_WRAP_END} but got {tok}"
-                                ),
-                                &self.lex,
-                            ))
-                        }
-                        None => return Err(Error::unexpected_eof(&self.lex)),
-                    }
-                }
-
-                Ok(Box::new(MapLiteral(map)))
-            }
-            ARRAY_WRAP => {
-                let mut arr = Vec::new();
-                loop {
-                    let value = self.parse_expression()?;
-                    arr.push(value);
-
-                    match self.lex.token() {
-                        Some(ARRAY_WRAP_END) => break,
-                        Some(ARRAY_CHILD_SEP) => continue,
-                        Some(tok) => {
-                            return Err(Error::with_history(
-                                &format!("expected , or {ARRAY_WRAP_END} but got {tok}"),
-                                &self.lex,
-                            ))
-                        }
-                        None => return Err(Error::unexpected_eof(&self.lex)),
-                    }
-                }
-
-                Ok(Box::new(ArrayLiteral(arr)))
-            }
-            FN_ADD => {
-                self.consume_token(FN_OPEN)?;
-                let left = self.parse_expression()?;
-                self.consume_token(FN_SEP)?;
-                let right = self.parse_expression()?;
-                self.consume_token(FN_CLOSE)?;
-
-                Ok(Box::new(AddExpression { left, right }))
-            }
-            FN_MINUS => {
-                self.consume_token(FN_OPEN)?;
-                let left = self.parse_expression()?;
-                self.consume_token(FN_SEP)?;
-                let right = self.parse_expression()?;
-                self.consume_token(FN_CLOSE)?;
-
-                Ok(Box::new(SubtractExpression { left, right }))
-            }
-            FN_MULTIPLY => {
-                self.consume_token(FN_OPEN)?;
-                let left = self.parse_expression()?;
-                self.consume_token(FN_SEP)?;
-                let right = self.parse_expression()?;
-                self.consume_token(FN_CLOSE)?;
-
-                Ok(Box::new(MultiplyExpression { left, right }))
-            }
-            FN_DIVIDE => {
-                self.consume_token(FN_OPEN)?;
-                let left = self.parse_expression()?;
-                self.consume_token(FN_SEP)?;
-                let right = self.parse_expression()?;
-                self.consume_token(FN_CLOSE)?;
-
-                Ok(Box::new(DivideExpression { left, right }))
-            }
-            FN_MODULUS => {
-                self.consume_token(FN_OPEN)?;
-                let left = self.parse_expression()?;
-                self.consume_token(FN_SEP)?;
-                let right = self.parse_expression()?;
-                self.consume_token(FN_CLOSE)?;
-
-                Ok(Box::new(ModulusExpression { left, right }))
-            }
-            TRUE => Ok(Box::new(BoolExpression { value: true })),
-            FALSE => Ok(Box::new(BoolExpression { value: false })),
-            NULL => Ok(Box::new(NullExpression)),
+            KEY_WRAP => Ok(Box::new(PathExpression::from_parser(self)?)),
+            STRING_WRAP => Ok(Box::new(StringExpression::from_parser(self)?)),
+            MAP_WRAP => Ok(Box::new(MapLiteral::from_parser(self)?)),
+            ARRAY_WRAP => Ok(Box::new(ArrayLiteral::from_parser(self)?)),
+            FN_ADD => Ok(Box::new(AddExpression::from_parser(self)?)),
+            FN_MINUS => Ok(Box::new(SubtractExpression::from_parser(self)?)),
+            FN_MULTIPLY => Ok(Box::new(MultiplyExpression::from_parser(self)?)),
+            FN_DIVIDE => Ok(Box::new(DivideExpression::from_parser(self)?)),
+            FN_MODULUS => Ok(Box::new(ModulusExpression::from_parser(self)?)),
+            TRUE => Ok(Box::new(BoolExpression::from_parser(self)?)),
+            FALSE => Ok(Box::new(BoolExpression::from_parser(self)?)),
+            NULL => Ok(Box::new(NullExpression::from_parser(self)?)),
             _ => self.parse_unwrapped_expression(left),
         }
     }
 
-    fn parse_unwrapped_expression(&self, left: &str) -> QueryResult<Box<dyn Expression>> {
+    fn parse_unwrapped_expression(&mut self, left: &str) -> QueryResult<Box<dyn Expression>> {
         let mut chars = left.chars();
         match chars.next() {
-            Some('0'..='9') => {
-                if chars.filter(|c| *c == '.').count() == 1 {
-                    let num = left.parse::<f64>().map_err(|e| {
-                        Error::with_history(&format!("expected integer but got {}", e), &self.lex)
-                    })?;
-
-                    Ok(Box::new(Number::F64(num)))
-                } else {
-                    let num = left.parse::<usize>().map_err(|e| {
-                        Error::with_history(&format!("expected integer but got {}", e), &self.lex)
-                    })?;
-
-                    Ok(Box::new(Number::USize(num)))
-                }
-            }
-            Some('-') => {
-                if chars.filter(|c| *c == '.').count() == 1 {
-                    let num = left.parse::<f64>().map_err(|e| {
-                        Error::with_history(&format!("expected integer but got {}", e), &self.lex)
-                    })?;
-
-                    Ok(Box::new(Number::F64(num)))
-                } else {
-                    let num = left.parse::<usize>().map_err(|e| {
-                        Error::with_history(&format!("expected integer but got {}", e), &self.lex)
-                    })?;
-
-                    Ok(Box::new(Number::USize(num)))
-                }
-            }
+            Some('0'..='9') | Some('-') => Ok(Box::new(NumberExpression::from_parser(self)?)),
             _ => Err(Error::with_history(
                 &format!("unexpected token {}", left),
-                &self.lex,
+                self.consumed(),
             )),
         }
     }
@@ -946,33 +810,33 @@ impl<'a> Parser<'a> {
         let tok = self
             .lex
             .token()
-            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
 
         match tok.parse::<usize>() {
             Ok(num) => Ok(num),
             Err(e) => Err(Error::with_history(
                 &format!("expected number but got {}", e),
-                &self.lex,
+                self.consumed(),
             )),
         }
     }
 
-    fn parse_string(&mut self, wrap: &str) -> QueryResult<String> {
+    pub fn parse_string(&mut self, wrap: &str) -> QueryResult<String> {
         match self.lex.token() {
             Some(val) if val == wrap => (),
             Some(tok) => {
                 return Err(Error::with_history(
                     &format!("expected {wrap} but got {tok}"),
-                    &self.lex,
+                    self.consumed(),
                 ))
             }
-            None => return Err(Error::unexpected_eof(&self.lex)),
+            None => return Err(Error::unexpected_eof(self.consumed())),
         }
 
         let value = self
             .lex
             .token()
-            .ok_or_else(|| Error::unexpected_eof(&self.lex))?;
+            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
 
         // consume the final " token, and return. If we get a different token
         // or hit EOF we can return an error
@@ -980,20 +844,20 @@ impl<'a> Parser<'a> {
             Some(val) if val == wrap => Ok(value.to_string()),
             Some(tok) => Err(Error::with_history(
                 &format!("expected {wrap} but got {tok}"),
-                &self.lex,
+                self.consumed(),
             )),
-            None => Err(Error::unexpected_eof(&self.lex)),
+            None => Err(Error::unexpected_eof(self.consumed())),
         }
     }
 
-    fn consume_token(&mut self, expected: &str) -> QueryResult<()> {
+    pub fn consume_token(&mut self, expected: &str) -> QueryResult<()> {
         match self.lex.token() {
             Some(tok) if tok.to_uppercase() == expected => Ok(()),
             Some(tok) => Err(Error::with_history(
                 &format!("expected {} but got {}", expected, tok),
-                &self.lex,
+                self.consumed(),
             )),
-            None => Err(Error::unexpected_eof(&self.lex)),
+            None => Err(Error::unexpected_eof(self.consumed())),
         }
     }
 
@@ -1013,561 +877,6 @@ impl<'a> Parser<'a> {
     //         _ => None,
     //     }
     // }
-}
-
-// if we have a naked expression which needs to be a
-// condition we can wrap it in this, these are the default
-// rules for what is truthy and what is falsey
-struct DefaultExpressCondition {
-    expr: Box<dyn Expression>,
-}
-
-macro_rules! impl_math_op {
-    ($name:ident, $op:tt) => {
-        #[derive(Clone)]
-        struct $name {
-            left: Box<dyn Expression>,
-            right: Box<dyn Expression>,
-        }
-
-        impl Expression for $name {
-            fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
-                let left = Number::try_from(self.left.evaluate(d)?).ok()?;
-                let right = Number::try_from(self.right.evaluate(d)?).ok()?;
-
-                Some(Any::from(left $op right))
-            }
-        }
-
-        impl Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{} {} {}", self.left, stringify!($op), self.right)
-            }
-        }
-    };
-}
-
-impl_math_op!(ModulusExpression, %);
-impl_math_op!(DivideExpression, /);
-impl_math_op!(MultiplyExpression, *);
-impl_math_op!(AddExpression, +);
-impl_math_op!(SubtractExpression, -);
-
-impl Condition for DefaultExpressCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        Ok(match self.expr.evaluate(d) {
-            Some(Any::Null) => false,
-            Some(Any::Bool(b)) => b,
-            Some(Any::USize(u)) => u != 0,
-            Some(Any::ISize(u)) => u != 0,
-            Some(Any::U128(u)) => u != 0,
-            Some(Any::I128(i)) => i != 0,
-            Some(Any::U64(u)) => u != 0,
-            Some(Any::I64(i)) => i != 0,
-            Some(Any::U32(u)) => u != 0,
-            Some(Any::I32(i)) => i != 0,
-            Some(Any::U16(u)) => u != 0,
-            Some(Any::I16(i)) => i != 0,
-            Some(Any::U8(u)) => u != 0,
-            Some(Any::I8(i)) => i != 0,
-            Some(Any::F64(f)) => f != 0.0,
-            Some(Any::F32(f)) => f != 0.0,
-            Some(Any::Str(s)) => !s.is_empty(),
-            Some(Any::Array(a)) => !a.is_empty(),
-            Some(Any::Map(m)) => !m.is_empty(),
-            Some(_) => true,
-            None => false,
-        })
-    }
-}
-
-// ExistsCondition is a condition that checks if an expression
-// returns a value that exists.
-struct ExistsCondition {
-    expr: Box<dyn Expression>,
-}
-
-impl Condition for ExistsCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        Ok(match self.expr.evaluate(d) {
-            Some(_) => true,
-            None => false,
-        })
-    }
-}
-
-// InCondition will check if the left expression is in the right expression. If the
-// right expression is not a map or array this functions the same as EqualsCondition
-struct InCondition {
-    left: Box<dyn Expression>,
-    right: Box<dyn Expression>,
-}
-
-impl Condition for InCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        let left = self.left.evaluate(d);
-        let right = self.right.evaluate(d);
-
-        match (left, right) {
-            (Some(l), Some(r)) => match r {
-                Any::Array(arr) => Ok(arr.contains(&l)),
-                Any::Map(map) => Ok({
-                    let mut found = false;
-                    for v in map.values() {
-                        if *v == l {
-                            found = true;
-                            break;
-                        }
-                    }
-                    found
-                }),
-                _ => Ok(l == r),
-            },
-            (Some(_), None) => Ok(false),
-            (None, Some(_)) => Ok(false),
-            (None, None) => Err(Error::NonExistentKey(format!(
-                "both keys {} == {} do not exist",
-                self.left, self.right
-            ))),
-        }
-    }
-}
-
-struct EqualsCondition {
-    left: Box<dyn Expression>,
-    right: Box<dyn Expression>,
-}
-
-impl Condition for EqualsCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        match (self.left.evaluate(d), self.right.evaluate(d)) {
-            (Some(l), Some(r)) => Ok(l == r),
-            // if only one side doesn't exist we can assume they don't match
-            (Some(_), None) => Ok(false),
-            (None, Some(_)) => Ok(false),
-            // if both sides don't exist this might be an error, so we should not
-            // capture this data
-            (None, None) => Err(Error::NonExistentKey(format!(
-                "both keys {} == {} do not exist",
-                self.left, self.right
-            ))),
-        }
-    }
-}
-
-struct NotEqualsCondition {
-    left: Box<dyn Expression>,
-    right: Box<dyn Expression>,
-}
-
-impl Condition for NotEqualsCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        match (self.left.evaluate(d), self.right.evaluate(d)) {
-            (Some(l), Some(r)) => Ok(l != r),
-            (Some(_), None) => Ok(true),
-            (None, Some(_)) => Ok(true),
-            (None, None) => Err(Error::NonExistentKey(format!(
-                "both keys {} == {} do not exist",
-                self.left, self.right
-            ))),
-        }
-    }
-}
-
-struct GreaterThanCondition {
-    left: Box<dyn Expression>,
-    right: Box<dyn Expression>,
-}
-
-// TODO: maybe we should have conditions return a result
-// so we can handle the does not exist condition better.
-impl Condition for GreaterThanCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        let left = Number::try_from(self.left.evaluate(d).ok_or_else(|| {
-            Error::NonExistentKey(format!("expr {} returned no value", self.left))
-        })?)?;
-
-        let right = Number::try_from(self.right.evaluate(d).ok_or_else(|| {
-            Error::NonExistentKey(format!("expr {} returned no value", self.right))
-        })?)?;
-
-        Ok(left > right)
-    }
-}
-
-struct LessThanCondition {
-    left: Box<dyn Expression>,
-    right: Box<dyn Expression>,
-}
-
-impl Condition for LessThanCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        let left = Number::try_from(self.left.evaluate(d).ok_or_else(|| {
-            Error::NonExistentKey(format!("expr {} returned no value", self.left))
-        })?)?;
-
-        let right = Number::try_from(self.right.evaluate(d).ok_or_else(|| {
-            Error::NonExistentKey(format!("expr {} returned no value", self.right))
-        })?)?;
-
-        Ok(left < right)
-    }
-}
-
-struct GreaterThanEqualCondition {
-    left: Box<dyn Expression>,
-    right: Box<dyn Expression>,
-}
-
-impl Condition for GreaterThanEqualCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        let left = Number::try_from(self.left.evaluate(d).ok_or_else(|| {
-            Error::NonExistentKey(format!("expr {} returned no value", self.left))
-        })?)?;
-
-        let right = Number::try_from(self.right.evaluate(d).ok_or_else(|| {
-            Error::NonExistentKey(format!("expr {} returned no value", self.right))
-        })?)?;
-
-        Ok(left >= right)
-    }
-}
-
-struct LessThanEqualCondition {
-    left: Box<dyn Expression>,
-    right: Box<dyn Expression>,
-}
-
-impl Condition for LessThanEqualCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
-        let left = Number::try_from(self.left.evaluate(d).ok_or_else(|| {
-            Error::NonExistentKey(format!("expr {} returned no value", self.left))
-        })?)?;
-
-        let right = Number::try_from(self.right.evaluate(d).ok_or_else(|| {
-            Error::NonExistentKey(format!("expr {} returned no value", self.right))
-        })?)?;
-
-        Ok(left <= right)
-    }
-}
-
-impl Expression for Path {
-    fn evaluate<'a, 'b: 'a>(&'a self, d: &'a Dapt) -> Option<Any<'a>> {
-        d.any_path(self).ok()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct StringExpression {
-    value: String,
-}
-
-impl Expression for StringExpression {
-    fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
-        Some(Any::Str(&self.value))
-    }
-}
-
-impl Display for StringExpression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "'{}'", self.value)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct NullExpression;
-
-impl Expression for NullExpression {
-    fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
-        Some(Any::Null)
-    }
-}
-
-impl Display for NullExpression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NULL")
-    }
-}
-
-#[derive(Debug, Clone)]
-struct BoolExpression {
-    value: bool,
-}
-
-impl Expression for BoolExpression {
-    fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
-        Some(Any::Bool(self.value))
-    }
-}
-
-impl Display for BoolExpression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", if self.value { "TRUE" } else { "FALSE" })
-    }
-}
-
-impl Expression for Number {
-    fn evaluate<'a, 'b: 'a>(&'a self, _: &'b Dapt) -> Option<Any<'a>> {
-        Some(Any::from(*self))
-    }
-}
-
-impl Display for Number {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Number::USize(u) => write!(f, "{}", u),
-            Number::ISize(i) => write!(f, "{}", i),
-            Number::U128(u) => write!(f, "{}", u),
-            Number::I128(i) => write!(f, "{}", i),
-            Number::U64(u) => write!(f, "{}", u),
-            Number::I64(i) => write!(f, "{}", i),
-            Number::U32(u) => write!(f, "{}", u),
-            Number::I32(i) => write!(f, "{}", i),
-            Number::U16(u) => write!(f, "{}", u),
-            Number::I16(i) => write!(f, "{}", i),
-            Number::U8(u) => write!(f, "{}", u),
-            Number::I8(i) => write!(f, "{}", i),
-            Number::F64(fl) => write!(f, "{}", fl),
-            Number::F32(fl) => write!(f, "{}", fl),
-        }
-    }
-}
-
-#[derive(Clone)]
-struct MapLiteral(HashMap<String, Box<dyn Expression>>);
-
-impl Deref for MapLiteral {
-    type Target = HashMap<String, Box<dyn Expression>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Expression for MapLiteral {
-    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
-        let mut map = HashMap::new();
-        for (k, v) in self.iter() {
-            if let Some(val) = v.evaluate(d) {
-                map.insert(&k[..], val);
-            }
-        }
-
-        Some(Any::Map(map))
-    }
-}
-
-impl Display for MapLiteral {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{")?;
-        for (k, v) in self.iter() {
-            write!(f, "'{}': {}, ", k, v)?;
-        }
-        write!(f, "}}")
-    }
-}
-
-#[derive(Clone)]
-struct ArrayLiteral(Vec<Box<dyn Expression>>);
-
-impl Deref for ArrayLiteral {
-    type Target = Vec<Box<dyn Expression>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Expression for ArrayLiteral {
-    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
-        let mut arr = Vec::new();
-        for v in self.iter() {
-            if let Some(val) = v.evaluate(d) {
-                arr.push(val);
-            }
-        }
-
-        Some(Any::Array(arr))
-    }
-}
-
-impl Display for ArrayLiteral {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[")?;
-        let mut first = true;
-        for v in self.iter() {
-            if first {
-                first = false;
-            } else {
-                write!(f, ", ")?;
-            }
-
-            write!(f, "{}", v)?;
-        }
-        write!(f, "]")
-    }
-}
-
-#[derive(Clone)]
-struct SumAggregation {
-    value: Box<dyn Expression>,
-    sum: Number,
-}
-
-impl SumAggregation {
-    fn from_parser(parser: &mut Parser) -> QueryResult<SumAggregation> {
-        parser.consume_token(AGGREGATION_SUM)?;
-        parser.consume_token(FN_OPEN)?;
-        let value = parser.parse_expression()?;
-        parser.consume_token(FN_CLOSE)?;
-
-        Ok(SumAggregation {
-            value,
-            sum: Number::USize(0),
-        })
-    }
-}
-
-// SumAggregation will sum the values of the expression, if the expression
-// returns an array, each item in the array is sumed. If the expression
-// returns non numeric types they are ignored without error.
-impl Aggregation for SumAggregation {
-    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
-        let expr_val = self.value.evaluate(d);
-        let val = match &expr_val {
-            Some(v) => v,
-            None => return Ok(()),
-        };
-
-        match val {
-            Any::Array(a) => {
-                for v in a {
-                    match Number::try_from(v) {
-                        Ok(n) => self.sum = self.sum + n,
-                        Err(_) => (),
-                    }
-                }
-            }
-            _ => match Number::try_from(val) {
-                Ok(n) => self.sum = self.sum + n,
-                Err(_) => (),
-            },
-        }
-        Ok(())
-    }
-
-    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
-        Ok(self.sum.into())
-    }
-}
-
-impl Display for SumAggregation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{AGGREGATION_SUM}({})", self.value)
-    }
-}
-
-// count aggregation will count the number of times an expression has a value
-// if no argument is given to count it will just count the number of lines
-#[derive(Clone)]
-struct CountAggregation {
-    expr: Option<Box<dyn Expression>>,
-    count: usize,
-}
-
-impl CountAggregation {
-    fn from_parser(parser: &mut Parser) -> QueryResult<CountAggregation> {
-        parser.consume_token(AGGREGATION_COUNT)?;
-        parser.consume_token(FN_OPEN)?;
-
-        let expr = match parser.lex.peak() {
-            Some(FN_CLOSE) => None,
-            _ => Some(parser.parse_expression()?),
-        };
-
-        parser.consume_token(FN_CLOSE)?;
-
-        Ok(CountAggregation { expr, count: 0 })
-    }
-}
-
-impl Display for CountAggregation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.expr {
-            Some(e) => write!(f, "{AGGREGATION_COUNT}({})", e),
-            None => write!(f, "{AGGREGATION_COUNT}"),
-        }
-    }
-}
-
-impl Aggregation for CountAggregation {
-    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
-        match &self.expr {
-            Some(e) => {
-                if e.evaluate(d).is_some() {
-                    self.count += 1;
-                }
-            }
-            None => self.count += 1,
-        }
-
-        Ok(())
-    }
-
-    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
-        Ok(Any::USize(self.count))
-    }
-}
-
-#[derive(Clone)]
-struct ExpressionAggregation {
-    expr: Box<dyn Expression>,
-    value: Option<OwnedAny>,
-}
-
-impl ExpressionAggregation {
-    fn new(expr: Box<dyn Expression>) -> Self {
-        Self { expr, value: None }
-    }
-
-    fn from_parser(parser: &mut Parser) -> QueryResult<ExpressionAggregation> {
-        let expr = parser.parse_expression()?;
-        Ok(ExpressionAggregation::new(expr))
-    }
-}
-
-impl Aggregation for ExpressionAggregation {
-    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
-        // just take the first value, that way we can avoid all the
-        // heap allocations for each value we process.
-        if self.value.is_some() {
-            return Ok(());
-        }
-
-        self.value = match self.expr.evaluate(d) {
-            // the value here will likely outlive the dapt packet
-            // it came from, so we clone.
-            Some(v) => Some(v.into()),
-            None => return Ok(()),
-        };
-
-        Ok(())
-    }
-
-    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
-        if self.value.is_none() {
-            return Err(Error::NotFound);
-        }
-
-        Ok(self.value.as_ref().unwrap().into())
-    }
-}
-
-impl Display for ExpressionAggregation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.expr)
-    }
 }
 
 struct Hasher {
