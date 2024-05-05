@@ -1526,14 +1526,12 @@ mod tests {
                 // have it aggregate data
                 let mut c = composable.clone();
                 for sd in d.sub("[]").unwrap() {
-                    println!("intput {}", serde_json::to_string(&sd).unwrap());
                     c.process(&sd).unwrap();
                 }
 
                 // take the aggregates and pass it into the combiner
                 let res = c.collect().unwrap();
                 for sd in res {
-                    println!("output {}", serde_json::to_string(&sd).unwrap());
                     combine.process(&sd).unwrap();
                 }
             }
@@ -1566,6 +1564,13 @@ mod tests {
             r#"[{"sum":6}]"#,
             r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"}]"#,
             r#"[{"a": 3}]"#
+        );
+
+        assert_composite_query!(
+            "select sum(\"a\") as \"sum\", count() as \"count\", \"b\" WHERE \"a\" > 1 GROUP BY \"b\" ORDER BY \"sum\" DESC TOP 2",
+            r#"[{"sum":13,"count":3,"b":"what"},{"sum":6,"count":1,"b":"goodbye"}]"#,
+            r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"},{"a":6, "b": "goodbye"}]"#,
+            r#"[{"a": 3, "b":"hello"},{"a":5, "b": "what"},{"a": 3, "b":"what"},{"a":5, "b": "what"}]"#
         );
     }
 }
