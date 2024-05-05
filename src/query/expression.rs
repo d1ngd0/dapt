@@ -97,6 +97,10 @@ impl PathExpression {
             None => Err(Error::unexpected_eof(parser.consumed())),
         }
     }
+
+    pub fn new(path: Path) -> Self {
+        PathExpression { path }
+    }
 }
 
 impl Deref for PathExpression {

@@ -99,10 +99,12 @@ impl Iterator for Dapt {
         let ptr = self.ptrs.get(self.iter_loc)?;
         let ptrs = [*ptr; MAX_POINTERS];
         self.iter_loc += 1;
+        let mut ptrs = ArrayVec::from(ptrs);
+        ptrs.truncate(1);
 
         Some(Dapt {
             iter_loc: 0,
-            ptrs: ArrayVec::from(ptrs),
+            ptrs,
             b: Arc::clone(&self.b),
         })
     }

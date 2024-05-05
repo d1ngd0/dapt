@@ -1,3 +1,5 @@
+use dyn_clone::DynClone;
+
 use crate::{Any, Dapt, Number};
 
 use super::{expression::Expression, Error, QueryResult};
@@ -5,11 +7,13 @@ use super::{expression::Expression, Error, QueryResult};
 // Condition is a trait that defines a where clause condition, such as
 // `age = 10` or `name != "John"` though higher level objects implement
 // this trait as well.
-pub trait Condition {
+pub trait Condition: DynClone {
     fn evaluate(&self, d: &Dapt) -> QueryResult<bool>;
 }
+dyn_clone::clone_trait_object!(Condition);
 
 // NoopCondition is a condition that always returns true
+#[derive(Clone)]
 pub struct NoopCondition {}
 
 impl Condition for NoopCondition {
@@ -27,6 +31,7 @@ impl Default for NoopCondition {
 // if we have a naked expression which needs to be a
 // condition we can wrap it in this, these are the default
 // rules for what is truthy and what is falsey
+#[derive(Clone)]
 pub struct DefaultExpressCondition {
     expr: Box<dyn Expression>,
 }
@@ -67,6 +72,7 @@ impl Condition for DefaultExpressCondition {
 
 // ExistsCondition is a condition that checks if an expression
 // returns a value that exists.
+#[derive(Clone)]
 pub struct ExistsCondition {
     expr: Box<dyn Expression>,
 }
@@ -82,6 +88,7 @@ impl Condition for ExistsCondition {
 
 // InCondition will check if the left expression is in the right expression. If the
 // right expression is not a map or array this functions the same as EqualsCondition
+#[derive(Clone)]
 pub struct InCondition {
     left: Box<dyn Expression>,
     right: Box<dyn Expression>,
@@ -123,6 +130,7 @@ impl Condition for InCondition {
     }
 }
 
+#[derive(Clone)]
 pub struct EqualsCondition {
     left: Box<dyn Expression>,
     right: Box<dyn Expression>,
@@ -151,6 +159,7 @@ impl Condition for EqualsCondition {
     }
 }
 
+#[derive(Clone)]
 pub struct NotEqualsCondition {
     left: Box<dyn Expression>,
     right: Box<dyn Expression>,
@@ -176,6 +185,7 @@ impl Condition for NotEqualsCondition {
     }
 }
 
+#[derive(Clone)]
 pub struct GreaterThanCondition {
     left: Box<dyn Expression>,
     right: Box<dyn Expression>,
@@ -203,6 +213,7 @@ impl Condition for GreaterThanCondition {
     }
 }
 
+#[derive(Clone)]
 pub struct LessThanCondition {
     left: Box<dyn Expression>,
     right: Box<dyn Expression>,
@@ -228,6 +239,7 @@ impl Condition for LessThanCondition {
     }
 }
 
+#[derive(Clone)]
 pub struct GreaterThanEqualCondition {
     left: Box<dyn Expression>,
     right: Box<dyn Expression>,
@@ -253,6 +265,7 @@ impl Condition for GreaterThanEqualCondition {
     }
 }
 
+#[derive(Clone)]
 pub struct LessThanEqualCondition {
     left: Box<dyn Expression>,
     right: Box<dyn Expression>,

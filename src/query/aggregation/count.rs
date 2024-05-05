@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, iter::Sum};
 
 use crate::{
     query::{
@@ -9,7 +9,7 @@ use crate::{
     Any, Dapt,
 };
 
-use super::Aggregation;
+use super::{Aggregation, SumAggregation};
 
 // count aggregation will count the number of times an expression has a value
 // if no argument is given to count it will just count the number of lines
@@ -60,5 +60,19 @@ impl Aggregation for CountAggregation {
 
     fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
         Ok(Any::USize(self.count))
+    }
+
+    fn composable(
+        &self,
+        expr: Box<dyn Expression>,
+    ) -> (Box<dyn Aggregation>, Box<dyn Aggregation>) {
+        let count = CountAggregation {
+            expr: self.expr.clone(),
+            count: 0,
+        };
+
+        let sum = SumAggregation::new(expr);
+
+        (Box::new(count), Box::new(sum))
     }
 }

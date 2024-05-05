@@ -49,6 +49,17 @@ impl Aggregation for ExpressionAggregation {
 
         Ok(self.value.as_ref().unwrap().into())
     }
+
+    // since this is essentially first, we can just return the first value
+    // we see when combining
+    fn composable(
+        &self,
+        expr: Box<dyn Expression>,
+    ) -> (Box<dyn Aggregation>, Box<dyn Aggregation>) {
+        let composable = Box::new(ExpressionAggregation::new(self.expr.clone()));
+        let combine = Box::new(ExpressionAggregation::new(expr));
+        (composable, combine)
+    }
 }
 
 impl Display for ExpressionAggregation {

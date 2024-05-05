@@ -26,8 +26,15 @@ impl SumAggregation {
 
         Ok(SumAggregation {
             value,
-            sum: Number::USize(0),
+            sum: Number::ISize(0),
         })
+    }
+
+    pub fn new(value: Box<dyn Expression>) -> Self {
+        Self {
+            value,
+            sum: Number::ISize(0),
+        }
     }
 }
 
@@ -61,6 +68,14 @@ impl Aggregation for SumAggregation {
 
     fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
         Ok(self.sum.into())
+    }
+
+    fn composable(
+        &self,
+        expr: Box<dyn Expression>,
+    ) -> (Box<dyn Aggregation>, Box<dyn Aggregation>) {
+        let sum = SumAggregation::new(expr);
+        (Box::new(self.clone()), Box::new(sum))
     }
 }
 

@@ -7,8 +7,8 @@ use crate::{
     Any, Dapt, DaptBuilder, Path,
 };
 
+use super::aggregation::{Aggregation, CountAggregation, ExpressionAggregation, SumAggregation};
 use super::{
-    aggregation::{Aggregation, CountAggregation, ExpressionAggregation, SumAggregation},
     condition::{
         Condition, DefaultExpressCondition, EqualsCondition, GreaterThanCondition,
         GreaterThanEqualCondition, InCondition, LessThanCondition, LessThanEqualCondition,
@@ -83,10 +83,30 @@ struct Column {
     alias: Path,
 }
 
+impl Column {
+    fn composable(&self) -> (Column, Column) {
+        let (composable, combine) = self
+            .agg
+            .composable(Box::new(PathExpression::new(self.alias.clone())));
+
+        (
+            Column {
+                agg: composable,
+                alias: self.alias.clone(),
+            },
+            Column {
+                agg: combine,
+                alias: self.alias.clone(),
+            },
+        )
+    }
+}
+
 // Group by holds an array of expressions, which are the values we will group by,
 // a template which holds a select clause to be cloned for each new unique set of
 // group by values, and finally a hashmap, which holds a select clause for each group
 // the key is a hash of the group by values.
+#[derive(Clone)]
 struct GroupBy {
     fields: Vec<Box<dyn Expression>>,
     // here we keep a key for the series of fields, and the
@@ -118,7 +138,7 @@ impl GroupBy {
         group.process(d)
     }
 
-    pub fn collect(&self, having: &WhereClause) -> QueryResult<Vec<Dapt>> {
+    fn collect(&self, having: &WhereClause) -> QueryResult<Vec<Dapt>> {
         let mut results = Vec::new();
 
         for group in self.groups.values() {
@@ -133,10 +153,27 @@ impl GroupBy {
 
         Ok(results)
     }
+
+    fn composable(&self) -> (GroupBy, GroupBy) {
+        let (composable, combine) = self.template.composable();
+        (
+            GroupBy {
+                fields: self.fields.clone(),
+                template: composable,
+                groups: HashMap::new(),
+            },
+            GroupBy {
+                fields: self.fields.clone(),
+                template: combine,
+                groups: HashMap::new(),
+            },
+        )
+    }
 }
 
 // OrderBy is used to sort the final result set. It holds a vector of OrderByColumn
 // which is an expression and a direction
+#[derive(Clone)]
 struct OrderBy {
     fields: Vec<OrderByColumn>,
 }
@@ -173,12 +210,14 @@ impl OrderBy {
 
 // OrderByColumn holds an expression and a direction, which is either ascending or
 // descending
+#[derive(Clone)]
 struct OrderByColumn {
     field: Box<dyn Expression>,
     direction: OrderDirection,
 }
 
 // OrderDirection is used for order by, Ascending or Descending
+#[derive(Clone)]
 enum OrderDirection {
     Ascending,
     Descending,
@@ -186,6 +225,7 @@ enum OrderDirection {
 
 // TOP is used at the very end, when used with Order By it can be used to get
 // a top subset of the values returned by the query.
+#[derive(Clone)]
 struct Top {
     count: usize,
 }
@@ -193,6 +233,7 @@ struct Top {
 // From isn't really used, at least within the query, but it is optionally
 // available in the query so it can be used outside to pull in appropriate
 // data. It allows for specifying multiple sources.
+#[derive(Clone)]
 struct FromClause(Vec<String>);
 
 impl FromClause {
@@ -206,6 +247,7 @@ impl FromClause {
 // group by (which houses the select clause), order by and top. The only thing required
 // to parse a query is the `SELECT` portion of the query. The rest is optional.
 // if not specified a No Op where, having, group by, order by are created.
+#[derive(Clone)]
 pub struct Query {
     from: FromClause,
     wherre: WhereClause,
@@ -237,6 +279,38 @@ impl Query {
         }
 
         Ok(set)
+    }
+
+    // composite returns two query objects, The first query can be
+    // run on multiple data sets concurrently, the second query
+    // is then used to combine the responses of the first query into
+    // the final answer the initial query was looking for.
+    pub fn composite(&self) -> (Query, Query) {
+        let (composable, combine) = self.group.composable();
+        (
+            // having, order by and top can only be done at the combine step
+            Query {
+                from: self.from.clone(),
+                wherre: self.wherre.clone(),
+                having: WhereClause {
+                    condition: Conjunction::Single(Box::new(NoopCondition::default())),
+                },
+                group: composable,
+                order: OrderBy { fields: Vec::new() },
+                top: None,
+            },
+            // where can only be done at the composable step
+            Query {
+                from: self.from.clone(),
+                wherre: WhereClause {
+                    condition: Conjunction::Single(Box::new(NoopCondition::default())),
+                },
+                having: self.having.clone(),
+                group: combine,
+                order: self.order.clone(),
+                top: self.top.clone(),
+            },
+        )
     }
 }
 
@@ -275,10 +349,24 @@ impl SelectClause {
 
         Ok(d.build())
     }
+
+    pub fn composable(&self) -> (SelectClause, SelectClause) {
+        let mut composable = SelectClause { fields: Vec::new() };
+        let mut combine = SelectClause { fields: Vec::new() };
+
+        for col in self.fields.iter() {
+            let (com, comb) = col.composable();
+            composable.fields.push(com);
+            combine.fields.push(comb);
+        }
+
+        (composable, combine)
+    }
 }
 
 // Conjunctions are used to combine conditions. So you can have a == b AND c == d
 // Conjuctions are a single condition, or an AND or OR of two conditions.
+#[derive(Clone)]
 enum Conjunction {
     Single(Box<dyn Condition>),
     And {
@@ -324,6 +412,7 @@ impl Condition for Conjunction {
 // WhereClause is used to filter dapt packets before passing into an aggregation.
 // The clause is just a conjuntion, which creates a left right tree of conditions.
 // it exists to provide a public interface to the conjunction
+#[derive(Clone)]
 pub struct WhereClause {
     condition: Conjunction,
 }
@@ -1418,6 +1507,65 @@ mod tests {
             r#"{"a": 4, "b": "hi"}"#,
             r#"{"a": 4, "b": "hi"}"#,
             r#"{"a": 4, "b": "hi"}"#
+        );
+    }
+
+    macro_rules! assert_composite_query {
+        ( $query:expr, $expected:expr, $($source:expr),+) => {
+            // create our query
+            let query = Query::new($query).unwrap();
+            // make it composable
+            let (composable, combine) = query.composite();
+            let mut combine = combine;
+
+            // each source coming in here will be an array of values, this emulates
+            // having multiple datasets.
+            let sources = vec![$(serde_json::from_str::<Dapt>($source).unwrap()),+];
+            for d in sources {
+                // create a new composable aggregation for each dataset and
+                // have it aggregate data
+                let mut c = composable.clone();
+                for sd in d.sub("[]").unwrap() {
+                    println!("intput {}", serde_json::to_string(&sd).unwrap());
+                    c.process(&sd).unwrap();
+                }
+
+                // take the aggregates and pass it into the combiner
+                let res = c.collect().unwrap();
+                for sd in res {
+                    println!("output {}", serde_json::to_string(&sd).unwrap());
+                    combine.process(&sd).unwrap();
+                }
+            }
+
+            // collect the results of the combiner, which should be the same
+            // as running the orignal query with only one dataset.
+            let result = combine.collect().unwrap();
+            assert_eq!(serde_json::to_string(&result).unwrap(), $expected);
+        };
+    }
+
+    #[test]
+    fn test_composite_queries() {
+        assert_composite_query!(
+            "select count() as \"count\"",
+            r#"[{"count":3}]"#,
+            r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        assert_composite_query!(
+            "select \"a\"",
+            r#"[{"a":1}]"#,
+            r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        assert_composite_query!(
+            "select sum(\"a\") as \"sum\"",
+            r#"[{"sum":6}]"#,
+            r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"}]"#,
+            r#"[{"a": 3}]"#
         );
     }
 }
