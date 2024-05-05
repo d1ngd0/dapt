@@ -3,8 +3,6 @@ use std::fmt::Display;
 use crate::path::parser::ParseError;
 use crate::Error as DaptError;
 
-use super::lexor::Lexer;
-
 pub type QueryResult<T> = Result<T, Error>;
 
 #[derive(Debug)]

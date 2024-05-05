@@ -10,7 +10,7 @@ use super::{
         FN_MINUS, FN_MODULUS, FN_MULTIPLY, FN_OPEN, FN_SEP, KEY_WRAP, MAP_CHILD_SEP, MAP_CHILD_SET,
         MAP_WRAP, MAP_WRAP_END, NULL, STRING_WRAP, TRUE,
     },
-    Error, Query, QueryResult,
+    Error, QueryResult,
 };
 
 // Expression is a trait that takes in a dapt packet and returns an

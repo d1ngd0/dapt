@@ -1,13 +1,10 @@
-use std::{cmp::Reverse, collections::HashMap, fmt::Display, ops::Deref};
+use std::collections::HashMap;
 
 use cityhash::city_hash_64;
 
-use dyn_clone::DynClone;
-
 use crate::{
-    binary::OwnedAny,
     path::{node::FieldLiteral, parser::Node},
-    Any, Dapt, DaptBuilder, Number, Path,
+    Any, Dapt, DaptBuilder, Path,
 };
 
 use super::{

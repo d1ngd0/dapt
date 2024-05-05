@@ -2,10 +2,10 @@ use core::slice;
 use std::fmt;
 
 use crate::binary::{
-    BArray, BKeyValue, BMap, BReference, BToken, Binary, TYPE_ARRAY, TYPE_KEYVAL, TYPE_MAP,
+    BArray, BKeyValue, BMap, BReference, Binary, TYPE_ARRAY, TYPE_KEYVAL, TYPE_MAP,
 };
 use crate::error::DaptResult;
-use crate::{Error, Path, MAX_POINTERS};
+use crate::{Error, Path};
 
 use super::parser::Node;
 

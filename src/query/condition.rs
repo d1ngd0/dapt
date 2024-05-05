@@ -13,7 +13,7 @@ pub trait Condition {
 pub struct NoopCondition {}
 
 impl Condition for NoopCondition {
-    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+    fn evaluate(&self, _d: &Dapt) -> QueryResult<bool> {
         Ok(true)
     }
 }
