@@ -2,11 +2,11 @@ use std::{fmt::Display, iter::Sum};
 
 use crate::{
     query::{
-        expression::Expression,
-        parser::{Parser, AGGREGATION_COUNT, FN_CLOSE, FN_OPEN},
+        expression::{Expression, PathExpression},
+        parser::{Column, Parser, AGGREGATION_COUNT, FN_CLOSE, FN_OPEN},
         QueryResult,
     },
-    Any, Dapt,
+    Any, Dapt, Path,
 };
 
 use super::{Aggregation, SumAggregation};
@@ -62,17 +62,9 @@ impl Aggregation for CountAggregation {
         Ok(Any::USize(self.count))
     }
 
-    fn composable(
-        &self,
-        expr: Box<dyn Expression>,
-    ) -> (Box<dyn Aggregation>, Box<dyn Aggregation>) {
-        let count = CountAggregation {
-            expr: self.expr.clone(),
-            count: 0,
-        };
-
-        let sum = SumAggregation::new(expr);
-
-        (Box::new(count), Box::new(sum))
+    fn composable(&self, path: &Path) -> (Vec<Column>, Box<dyn Aggregation>) {
+        let composite = Column::new(Box::new(self.clone()), path.clone());
+        let combine = SumAggregation::new(Box::new(PathExpression::from(path.clone())));
+        (vec![composite], Box::new(combine))
     }
 }

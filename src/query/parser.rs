@@ -73,27 +73,28 @@ pub const FN_MODULUS: &str = "MOD";
 
 pub const AGGREGATION_SUM: &str = "SUM";
 pub const AGGREGATION_COUNT: &str = "COUNT";
+pub const AGGREGATION_AVG: &str = "AVG";
+pub const AGGREGATION_SUM_COUNT: &str = "SUM_COUNT";
 
 // Column holds the aggregation and it's alias. It is the sum("key") as "sum"
 // part of a query. The alias is a path, since paths have the `Aquire` trait which
 // allows them to be created in a new dapt packet
 #[derive(Clone)]
-struct Column {
+pub struct Column {
     agg: Box<dyn Aggregation>,
     alias: Path,
 }
 
 impl Column {
-    fn composable(&self) -> (Column, Column) {
-        let (composable, combine) = self
-            .agg
-            .composable(Box::new(PathExpression::new(self.alias.clone())));
+    pub fn new(agg: Box<dyn Aggregation>, alias: Path) -> Self {
+        Self { agg, alias }
+    }
+
+    fn composable(&self) -> (Vec<Column>, Column) {
+        let (composable, combine) = self.agg.composable(&self.alias);
 
         (
-            Column {
-                agg: composable,
-                alias: self.alias.clone(),
-            },
+            composable,
             Column {
                 agg: combine,
                 alias: self.alias.clone(),
@@ -356,7 +357,9 @@ impl SelectClause {
 
         for col in self.fields.iter() {
             let (com, comb) = col.composable();
-            composable.fields.push(com);
+            for c in com {
+                composable.fields.push(c);
+            }
             combine.fields.push(comb);
         }
 

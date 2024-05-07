@@ -2,14 +2,14 @@ use std::fmt::Display;
 
 use crate::{
     query::{
-        expression::Expression,
-        parser::{Parser, AGGREGATION_SUM, FN_CLOSE, FN_OPEN},
+        expression::{Expression, PathExpression},
+        parser::{Column, Parser, AGGREGATION_SUM, FN_CLOSE, FN_OPEN},
         QueryResult,
     },
-    Any, Dapt, Number,
+    Any, Dapt, Number, Path,
 };
 
-use super::Aggregation;
+use super::{Aggregation, ExpressionAggregation};
 
 #[derive(Clone)]
 pub struct SumAggregation {
@@ -70,12 +70,17 @@ impl Aggregation for SumAggregation {
         Ok(self.sum.into())
     }
 
-    fn composable(
-        &self,
-        expr: Box<dyn Expression>,
-    ) -> (Box<dyn Aggregation>, Box<dyn Aggregation>) {
-        let sum = SumAggregation::new(expr);
-        (Box::new(self.clone()), Box::new(sum))
+    fn composable(&self, path: &Path) -> (Vec<Column>, Box<dyn Aggregation>) {
+        // create the column
+        let composite = Column::new(Box::new(self.clone()), path.clone());
+
+        // create the aggregation
+        let combine = Box::new(SumAggregation {
+            value: Box::new(PathExpression::from(path.clone())),
+            sum: Number::ISize(0),
+        });
+
+        (vec![composite], combine)
     }
 }
 

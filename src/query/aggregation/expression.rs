@@ -1,6 +1,13 @@
 use std::fmt::Display;
 
-use crate::{binary::OwnedAny, query::parser::Parser, Any, Dapt};
+use crate::{
+    binary::OwnedAny,
+    query::{
+        expression::PathExpression,
+        parser::{Column, Parser},
+    },
+    Any, Dapt, Path,
+};
 
 use super::{
     super::{expression::Expression, Error, QueryResult},
@@ -21,6 +28,12 @@ impl ExpressionAggregation {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<ExpressionAggregation> {
         let expr = parser.parse_expression()?;
         Ok(ExpressionAggregation::new(expr))
+    }
+}
+
+impl From<Path> for ExpressionAggregation {
+    fn from(path: Path) -> Self {
+        Self::new(Box::new(PathExpression::new(path)))
     }
 }
 
@@ -52,13 +65,10 @@ impl Aggregation for ExpressionAggregation {
 
     // since this is essentially first, we can just return the first value
     // we see when combining
-    fn composable(
-        &self,
-        expr: Box<dyn Expression>,
-    ) -> (Box<dyn Aggregation>, Box<dyn Aggregation>) {
-        let composable = Box::new(ExpressionAggregation::new(self.expr.clone()));
-        let combine = Box::new(ExpressionAggregation::new(expr));
-        (composable, combine)
+    fn composable(&self, path: &Path) -> (Vec<Column>, Box<dyn Aggregation>) {
+        let composable = Column::new(Box::new(self.clone()), path.clone());
+        let combine = Box::new(ExpressionAggregation::from(path.clone()));
+        (vec![composable], combine)
     }
 }
 

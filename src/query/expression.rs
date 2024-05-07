@@ -74,6 +74,12 @@ pub struct PathExpression {
     path: Path,
 }
 
+impl From<Path> for PathExpression {
+    fn from(path: Path) -> Self {
+        PathExpression { path }
+    }
+}
+
 impl PathExpression {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
         parser.consume_token(KEY_WRAP)?;

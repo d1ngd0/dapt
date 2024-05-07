@@ -1,3 +1,4 @@
+mod avg;
 mod count;
 mod expression;
 mod sum;
@@ -5,10 +6,11 @@ mod sum;
 use dyn_clone::DynClone;
 use std::fmt::Display;
 
-use crate::{Any, Dapt};
+use crate::{Any, Dapt, Path};
 
-use super::{expression::Expression, QueryResult};
+use super::{expression::Expression, parser::Column, QueryResult};
 
+pub use avg::AvgAggregation;
 pub use count::CountAggregation;
 pub use expression::ExpressionAggregation;
 pub use sum::SumAggregation;
@@ -31,7 +33,6 @@ pub trait Aggregation: Display + DynClone {
     // into the expected result of the initial query.
     // The expression passed in is for the combining aggregation. Since aliasing will
     // be done higher up.
-    fn composable(&self, expr: Box<dyn Expression>)
-        -> (Box<dyn Aggregation>, Box<dyn Aggregation>);
+    fn composable(&self, expr: &Path) -> (Vec<Column>, Box<dyn Aggregation>);
 }
 dyn_clone::clone_trait_object!(Aggregation);
