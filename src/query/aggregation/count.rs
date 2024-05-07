@@ -1,4 +1,4 @@
-use std::{fmt::Display, iter::Sum};
+use std::fmt::Display;
 
 use crate::{
     query::{
@@ -20,6 +20,10 @@ pub struct CountAggregation {
 }
 
 impl CountAggregation {
+    pub fn new(expr: Option<Box<dyn Expression>>) -> Self {
+        Self { expr, count: 0 }
+    }
+
     pub fn from_parser(parser: &mut Parser) -> QueryResult<CountAggregation> {
         parser.consume_token(AGGREGATION_COUNT)?;
         parser.consume_token(FN_OPEN)?;
@@ -45,7 +49,7 @@ impl Display for CountAggregation {
 }
 
 impl Aggregation for CountAggregation {
-    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
+    fn process<'a>(&'a mut self, d: &Dapt) {
         match &self.expr {
             Some(e) => {
                 if e.evaluate(d).is_some() {
@@ -54,12 +58,10 @@ impl Aggregation for CountAggregation {
             }
             None => self.count += 1,
         }
-
-        Ok(())
     }
 
-    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
-        Ok(Any::USize(self.count))
+    fn result<'a>(&'a self) -> Option<Any<'a>> {
+        Some(Any::USize(self.count))
     }
 
     fn composable(&self, path: &Path) -> (Vec<Column>, Box<dyn Aggregation>) {

@@ -38,29 +38,23 @@ impl From<Path> for ExpressionAggregation {
 }
 
 impl Aggregation for ExpressionAggregation {
-    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
+    fn process<'a>(&'a mut self, d: &Dapt) {
         // just take the first value, that way we can avoid all the
         // heap allocations for each value we process.
         if self.value.is_some() {
-            return Ok(());
+            return;
         }
 
         self.value = match self.expr.evaluate(d) {
             // the value here will likely outlive the dapt packet
             // it came from, so we clone.
             Some(v) => Some(v.into()),
-            None => return Ok(()),
+            None => return,
         };
-
-        Ok(())
     }
 
-    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
-        if self.value.is_none() {
-            return Err(Error::NotFound);
-        }
-
-        Ok(self.value.as_ref().unwrap().into())
+    fn result<'a>(&'a self) -> Option<Any<'a>> {
+        Some(self.value.as_ref()?.into())
     }
 
     // since this is essentially first, we can just return the first value

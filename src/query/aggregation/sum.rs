@@ -42,11 +42,11 @@ impl SumAggregation {
 // returns an array, each item in the array is sumed. If the expression
 // returns non numeric types they are ignored without error.
 impl Aggregation for SumAggregation {
-    fn process<'a>(&'a mut self, d: &Dapt) -> QueryResult<()> {
+    fn process<'a>(&'a mut self, d: &Dapt) {
         let expr_val = self.value.evaluate(d);
         let val = match &expr_val {
             Some(v) => v,
-            None => return Ok(()),
+            None => return,
         };
 
         match val {
@@ -63,11 +63,10 @@ impl Aggregation for SumAggregation {
                 Err(_) => (),
             },
         }
-        Ok(())
     }
 
-    fn result<'a>(&'a self) -> QueryResult<Any<'a>> {
-        Ok(self.sum.into())
+    fn result<'a>(&'a self) -> Option<Any<'a>> {
+        Some(self.sum.into())
     }
 
     fn composable(&self, path: &Path) -> (Vec<Column>, Box<dyn Aggregation>) {

@@ -7,7 +7,11 @@ use crate::{
     Any, Dapt, DaptBuilder, Path,
 };
 
-use super::aggregation::{Aggregation, CountAggregation, ExpressionAggregation, SumAggregation};
+use super::aggregation::{
+    AddAggregation, Aggregation, AvgAggregation, CountAggregation, DivideAggregation,
+    ExpressionAggregation, ModulusAggregation, MultiplyAggregation, SubtractAggregation,
+    SumAggregation,
+};
 use super::{
     condition::{
         Condition, DefaultExpressCondition, EqualsCondition, GreaterThanCondition,
@@ -74,7 +78,6 @@ pub const FN_MODULUS: &str = "MOD";
 pub const AGGREGATION_SUM: &str = "SUM";
 pub const AGGREGATION_COUNT: &str = "COUNT";
 pub const AGGREGATION_AVG: &str = "AVG";
-pub const AGGREGATION_SUM_COUNT: &str = "SUM_COUNT";
 
 // Column holds the aggregation and it's alias. It is the sum("key") as "sum"
 // part of a query. The alias is a path, since paths have the `Aquire` trait which
@@ -117,7 +120,7 @@ struct GroupBy {
 }
 
 impl GroupBy {
-    pub fn process(&mut self, d: &Dapt) -> QueryResult<()> {
+    pub fn process(&mut self, d: &Dapt) {
         let mut hasher = Hasher::new();
 
         for field in self.fields.iter() {
@@ -136,7 +139,7 @@ impl GroupBy {
             self.groups.get_mut(&hash).unwrap()
         };
 
-        group.process(d)
+        group.process(d);
     }
 
     fn collect(&self, having: &WhereClause) -> QueryResult<Vec<Dapt>> {
@@ -148,7 +151,7 @@ impl GroupBy {
                 Ok(true) => results.push(d),
                 Ok(false) => (),
                 // TODO: handle the error here.
-                Err(e) => (),
+                Err(_) => (),
             }
         }
 
@@ -266,7 +269,7 @@ impl Query {
 
     pub fn process(&mut self, d: &Dapt) -> QueryResult<()> {
         if self.wherre.filter(d)? {
-            self.group.process(d)?;
+            self.group.process(d);
         }
         Ok(())
     }
@@ -333,19 +336,18 @@ impl SelectClause {
         parser.parse_select()
     }
 
-    pub fn process(&mut self, d: &Dapt) -> QueryResult<()> {
+    pub fn process(&mut self, d: &Dapt) {
         for col in self.fields.iter_mut() {
-            col.agg.process(d)?;
+            col.agg.process(d);
         }
-
-        Ok(())
     }
 
     pub fn collect(&self) -> QueryResult<Dapt> {
         let mut d = DaptBuilder::new();
         for col in self.fields.iter() {
-            let value = col.agg.result()?;
-            d.set_any_path(&col.alias, value)?;
+            if let Some(value) = col.agg.result() {
+                d.set_any_path(&col.alias, value)?;
+            }
         }
 
         Ok(d.build())
@@ -651,6 +653,12 @@ impl<'a> Parser<'a> {
         match tok.to_uppercase().as_str() {
             AGGREGATION_SUM => Ok(Box::new(SumAggregation::from_parser(self)?)),
             AGGREGATION_COUNT => Ok(Box::new(CountAggregation::from_parser(self)?)),
+            AGGREGATION_AVG => Ok(Box::new(AvgAggregation::from_parser(self)?)),
+            FN_ADD => Ok(Box::new(AddAggregation::from_parser(self)?)),
+            FN_MINUS => Ok(Box::new(SubtractAggregation::from_parser(self)?)),
+            FN_MULTIPLY => Ok(Box::new(MultiplyAggregation::from_parser(self)?)),
+            FN_DIVIDE => Ok(Box::new(DivideAggregation::from_parser(self)?)),
+            FN_MODULUS => Ok(Box::new(ModulusAggregation::from_parser(self)?)),
             _ => Ok(Box::new(ExpressionAggregation::from_parser(self)?)),
         }
     }
@@ -1277,7 +1285,7 @@ mod tests {
             let mut expr = parser.parse_aggregation().unwrap();
             let sources = vec![$(serde_json::from_str($source).unwrap()),+];
             for d in sources {
-                expr.process(&d).unwrap();
+                expr.process(&d);
             }
             let result = expr.result().unwrap();
             assert_eq!(result, $expected);
@@ -1334,7 +1342,7 @@ mod tests {
             let mut expr = parser.parse_select().unwrap();
             let sources = vec![$(serde_json::from_str($source).unwrap()),+];
             for d in sources {
-                expr.process(&d).unwrap();
+                expr.process(&d);
             }
             let result = expr.collect().unwrap();
             assert_eq!(serde_json::to_string(&result).unwrap(), $expected);
@@ -1535,6 +1543,7 @@ mod tests {
                 // take the aggregates and pass it into the combiner
                 let res = c.collect().unwrap();
                 for sd in res {
+                    println!("{}", serde_json::to_string(&sd).unwrap());
                     combine.process(&sd).unwrap();
                 }
             }
@@ -1548,13 +1557,7 @@ mod tests {
 
     #[test]
     fn test_composite_queries() {
-        assert_composite_query!(
-            "select count() as \"count\"",
-            r#"[{"count":3}]"#,
-            r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"}]"#,
-            r#"[{"a": 3}]"#
-        );
-
+        // expression aggregate
         assert_composite_query!(
             "select \"a\"",
             r#"[{"a":1}]"#,
@@ -1562,10 +1565,67 @@ mod tests {
             r#"[{"a": 3}]"#
         );
 
+        // sum
         assert_composite_query!(
             "select sum(\"a\") as \"sum\"",
             r#"[{"sum":6}]"#,
             r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        // count
+        assert_composite_query!(
+            "select count() as \"count\"",
+            r#"[{"count":3}]"#,
+            r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        // avg
+        assert_composite_query!(
+            "select avg(\"a\") as \"avg\"",
+            r#"[{"avg":2.0}]"#,
+            r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        // add
+        assert_composite_query!(
+            "select add(sum(\"a\"), sum(\"b\")) as \"sums\"",
+            r#"[{"sums":20.0}]"#,
+            r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        // subtract
+        assert_composite_query!(
+            "select neg(sum(\"a\"), sum(\"b\")) as \"subtract\"",
+            r#"[{"subtract":-8.0}]"#,
+            r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        // multiply
+        assert_composite_query!(
+            "select mul(sum(\"a\"), sum(\"b\")) as \"multiply\"",
+            r#"[{"multiply":84.0}]"#,
+            r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        // divide
+        assert_composite_query!(
+            "select div(sum(\"a\"), sum(\"b\")) as \"divide\"",
+            r#"[{"divide":0.5}]"#,
+            r#"[{"a": 1, "b": 10},{"a": 2, "b": 2}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        // mod
+        assert_composite_query!(
+            "select mod(sum(\"a\"), sum(\"b\")) as \"modulus\"",
+            r#"[{"modulus":6.0}]"#,
+            r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
             r#"[{"a": 3}]"#
         );
 

@@ -24,7 +24,7 @@ fn bench_filter(d: &Dapt, f: &WhereClause) -> QueryResult<bool> {
     f.filter(d)
 }
 
-fn bench_aggregate(d: &Dapt, s: &mut SelectClause) -> QueryResult<()> {
+fn bench_aggregate(d: &Dapt, s: &mut SelectClause) {
     s.process(d)
 }
 

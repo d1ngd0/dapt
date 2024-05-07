@@ -185,6 +185,10 @@ impl Path {
 
         node.find(bin, b, &mut |b| self.find_depth(bin, b, depth + 1, f));
     }
+
+    pub fn append_key(&mut self, key: &str) {
+        self.0.push(Node::FieldLiteral(FieldLiteral::new(key)));
+    }
 }
 
 impl Default for Path {
