@@ -125,7 +125,7 @@ impl Expression for PathExpression {
 
 impl Display for PathExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.path)
+        write!(f, "\"{}\"", self.path)
     }
 }
 

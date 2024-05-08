@@ -176,7 +176,7 @@ fn test_select() {
 
     assert_select!(
         r#" SELECT count(), count("c") as "c_count", sum("c") as "sum" "#,
-        r#"{"COUNT":2,"c_count":1,"sum":6}"#,
+        r#"{"COUNT()":2,"c_count":1,"sum":6}"#,
         r#"{"a":1,"b":"hello","c":[1,2,3]}"#,
         r#"{"a":1,"b":"hello"}"#
     );

@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use core::fmt;
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter},
+};
 
 use cityhash::city_hash_64;
 
@@ -74,6 +78,7 @@ pub const FN_MINUS: &str = "NEG";
 pub const FN_MULTIPLY: &str = "MUL";
 pub const FN_DIVIDE: &str = "DIV";
 pub const FN_MODULUS: &str = "MOD";
+pub const FN_EXISTS: &str = "EXISTS";
 
 pub const AGGREGATION_SUM: &str = "SUM";
 pub const AGGREGATION_COUNT: &str = "COUNT";
@@ -103,6 +108,12 @@ impl Column {
                 alias: self.alias.clone(),
             },
         )
+    }
+}
+
+impl Display for Column {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{} AS \"{}\"", self.agg, self.alias)
     }
 }
 
@@ -142,7 +153,7 @@ impl GroupBy {
         group.process(d);
     }
 
-    fn collect(&self, having: &WhereClause) -> QueryResult<Vec<Dapt>> {
+    fn collect(&self, having: &HavingClause) -> QueryResult<Vec<Dapt>> {
         let mut results = Vec::new();
 
         for group in self.groups.values() {
@@ -172,6 +183,29 @@ impl GroupBy {
                 groups: HashMap::new(),
             },
         )
+    }
+}
+
+impl Display for GroupBy {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        if self.fields.is_empty() {
+            return Ok(());
+        }
+
+        let mut first = true;
+        write!(f, "GROUP BY ")?;
+
+        for field in self.fields.iter() {
+            if first {
+                first = false;
+            } else {
+                write!(f, ", ")?;
+            }
+
+            write!(f, "{}", field)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -212,12 +246,41 @@ impl OrderBy {
     }
 }
 
+impl Display for OrderBy {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        if self.fields.is_empty() {
+            return Ok(());
+        }
+
+        write!(f, "ORDER BY ")?;
+
+        let mut first = true;
+        for field in self.fields.iter() {
+            if first {
+                first = false;
+            } else {
+                write!(f, ", ")?;
+            }
+
+            write!(f, "{}", field.field)?;
+        }
+
+        Ok(())
+    }
+}
+
 // OrderByColumn holds an expression and a direction, which is either ascending or
 // descending
 #[derive(Clone)]
 struct OrderByColumn {
     field: Box<dyn Expression>,
     direction: OrderDirection,
+}
+
+impl Display for OrderByColumn {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.field, self.direction)
+    }
 }
 
 // OrderDirection is used for order by, Ascending or Descending
@@ -227,11 +290,26 @@ enum OrderDirection {
     Descending,
 }
 
+impl Display for OrderDirection {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            OrderDirection::Ascending => write!(f, "ASC"),
+            OrderDirection::Descending => write!(f, "DESC"),
+        }
+    }
+}
+
 // TOP is used at the very end, when used with Order By it can be used to get
 // a top subset of the values returned by the query.
 #[derive(Clone)]
 struct Top {
     count: usize,
+}
+
+impl Display for Top {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "TOP {}", self.count)
+    }
 }
 
 // From isn't really used, at least within the query, but it is optionally
@@ -247,6 +325,29 @@ impl FromClause {
     }
 }
 
+impl Display for FromClause {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        if self.0.is_empty() {
+            return Ok(());
+        }
+
+        write!(f, "FROM ")?;
+
+        let mut first = true;
+        for source in self.0.iter() {
+            if first {
+                first = false;
+            } else {
+                write!(f, ", ")?;
+            }
+
+            write!(f, "{}", source)?;
+        }
+
+        Ok(())
+    }
+}
+
 // Query is the parsed representation of a query. It holds a from, where, having
 // group by (which houses the select clause), order by and top. The only thing required
 // to parse a query is the `SELECT` portion of the query. The rest is optional.
@@ -255,7 +356,7 @@ impl FromClause {
 pub struct Query {
     from: FromClause,
     wherre: WhereClause,
-    having: WhereClause,
+    having: HavingClause,
     group: GroupBy,
     order: OrderBy,
     top: Option<Top>,
@@ -296,7 +397,7 @@ impl Query {
             Query {
                 from: self.from.clone(),
                 wherre: self.wherre.clone(),
-                having: WhereClause {
+                having: HavingClause {
                     condition: Conjunction::Single(Box::new(NoopCondition::default())),
                 },
                 group: composable,
@@ -315,6 +416,28 @@ impl Query {
                 top: self.top.clone(),
             },
         )
+    }
+}
+
+impl Display for Query {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.group.template)?;
+
+        if !self.from.0.is_empty() {
+            write!(f, " {}", self.from)?;
+        }
+
+        write!(
+            f,
+            " {} {} {} {}",
+            self.wherre, self.having, self.group, self.order
+        )?;
+
+        if self.top.is_some() {
+            write!(f, " {}", self.top.as_ref().unwrap())?;
+        }
+
+        Ok(())
     }
 }
 
@@ -369,6 +492,25 @@ impl SelectClause {
     }
 }
 
+impl Display for SelectClause {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "SELECT ")?;
+
+        let mut first = true;
+        for field in self.fields.iter() {
+            if first {
+                first = false;
+            } else {
+                write!(f, ", ")?;
+            }
+
+            write!(f, "{}", field)?;
+        }
+
+        Ok(())
+    }
+}
+
 // Conjunctions are used to combine conditions. So you can have a == b AND c == d
 // Conjuctions are a single condition, or an AND or OR of two conditions.
 #[derive(Clone)]
@@ -404,6 +546,16 @@ impl Conjunction {
     }
 }
 
+impl Display for Conjunction {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Conjunction::Single(c) => write!(f, "{}", c),
+            Conjunction::And { left, right } => write!(f, "{} AND {}", left, right),
+            Conjunction::Or { left, right } => write!(f, "{} OR {}", left, right),
+        }
+    }
+}
+
 impl Condition for Conjunction {
     fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
         match self {
@@ -430,6 +582,37 @@ impl WhereClause {
 
     pub fn filter(&self, d: &Dapt) -> QueryResult<bool> {
         self.condition.evaluate(d)
+    }
+}
+
+impl Display for WhereClause {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "WHERE {}", self.condition)
+    }
+}
+
+// HavingClause is used to filter dapt packets after passing through an aggregation.
+// The clause is just a conjuntion, which creates a left right tree of conditions.
+// it exists to provide a public interface to the conjunction
+#[derive(Clone)]
+pub struct HavingClause {
+    condition: Conjunction,
+}
+
+impl HavingClause {
+    pub fn new(str: &str) -> QueryResult<HavingClause> {
+        let mut parser = Parser::from(str);
+        parser.parse_having()
+    }
+
+    pub fn filter(&self, d: &Dapt) -> QueryResult<bool> {
+        self.condition.evaluate(d)
+    }
+}
+
+impl Display for HavingClause {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "HAVING {}", self.condition)
     }
 }
 
@@ -487,7 +670,7 @@ impl<'a> Parser<'a> {
             self.parse_having()?
         } else {
             // this always evaluates to true
-            WhereClause {
+            HavingClause {
                 condition: Conjunction::Single(Box::new(NoopCondition::default())),
             }
         };
@@ -663,14 +846,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_having(&mut self) -> QueryResult<WhereClause> {
+    pub fn parse_having(&mut self) -> QueryResult<HavingClause> {
         let tok = self
             .lex
             .token()
             .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
 
         match tok {
-            HAVING => Ok(WhereClause {
+            HAVING => Ok(HavingClause {
                 condition: self.parse_conjunction()?,
             }),
             _ => Err(Error::with_history("expected HAVING", self.consumed())),
@@ -1265,7 +1448,7 @@ mod tests {
                 "c": 10.0
             }"#,
             r#"WHERE "non_existant" == "other_nonexistant" "#,
-            "Non existent key: both keys non_existant == other_nonexistant do not exist"
+            "Non existent key: both keys \"non_existant\" == \"other_nonexistant\" do not exist"
         );
 
         assert_where_error!(
@@ -1275,7 +1458,7 @@ mod tests {
                 "c": 10.0
             }"#,
             r#"WHERE "a" != "b" AND ("nope" == "nothere" OR "a" == "c") "#,
-            "Non existent key: both keys nope == nothere do not exist"
+            "Non existent key: both keys \"nope\" == \"nothere\" do not exist"
         );
     }
 
@@ -1372,7 +1555,7 @@ mod tests {
 
         assert_select!(
             r#"SELECT sum("a") "#,
-            r#"{"SUM(a)":6}"#,
+            r#"{"SUM(\"a\")":6}"#,
             // values
             r#"{"a": 1}"#,
             r#"{"a": 2}"#,
@@ -1634,6 +1817,23 @@ mod tests {
             r#"[{"sum":13,"count":3,"b":"what"},{"sum":6,"count":1,"b":"goodbye"}]"#,
             r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"},{"a":6, "b": "goodbye"}]"#,
             r#"[{"a": 3, "b":"hello"},{"a":5, "b": "what"},{"a": 3, "b":"what"},{"a":5, "b": "what"}]"#
+        );
+    }
+
+    macro_rules! assert_display_query {
+        ($input:expr, $output:expr) => {
+            let mut parser = Parser::from($input);
+            let query = parser.parse_query().unwrap();
+            let query_str = format!("{}", query);
+            assert_eq!(query_str, $output);
+        };
+    }
+
+    #[test]
+    fn test_display_query() {
+        assert_display_query!(
+            r#"SELECT sum("a") as "sum", count("a") as "count", "b" WHERE "a" > 1 GROUP BY "b" ORDER BY "b""#,
+            "SELECT SUM(\"a\") AS \"sum\", COUNT(\"a\") AS \"count\", \"b\" AS \"b\" WHERE \"a\" > 1 HAVING true GROUP BY \"b\" ORDER BY \"b\""
         );
     }
 }

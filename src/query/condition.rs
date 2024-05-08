@@ -1,13 +1,22 @@
+use std::fmt::Display;
+
 use dyn_clone::DynClone;
 
-use crate::{Any, Dapt, Number};
+use crate::{
+    query::parser::{
+        EQUAL_DOUBLE, GREATER_THAN, GREATER_THAN_EQUAL, IN, LESS_THAN, LESS_THAN_EQUAL, NOT_EQUAL,
+    },
+    Any, Dapt, Number,
+};
 
 use super::{expression::Expression, Error, QueryResult};
+
+use crate::query::parser::FN_EXISTS;
 
 // Condition is a trait that defines a where clause condition, such as
 // `age = 10` or `name != "John"` though higher level objects implement
 // this trait as well.
-pub trait Condition: DynClone {
+pub trait Condition: Display + DynClone {
     fn evaluate(&self, d: &Dapt) -> QueryResult<bool>;
 }
 dyn_clone::clone_trait_object!(Condition);
@@ -19,6 +28,12 @@ pub struct NoopCondition {}
 impl Condition for NoopCondition {
     fn evaluate(&self, _d: &Dapt) -> QueryResult<bool> {
         Ok(true)
+    }
+}
+
+impl Display for NoopCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "true")
     }
 }
 
@@ -70,6 +85,12 @@ impl Condition for DefaultExpressCondition {
     }
 }
 
+impl Display for DefaultExpressCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.expr)
+    }
+}
+
 // ExistsCondition is a condition that checks if an expression
 // returns a value that exists.
 #[derive(Clone)]
@@ -83,6 +104,12 @@ impl Condition for ExistsCondition {
             Some(_) => true,
             None => false,
         })
+    }
+}
+
+impl Display for ExistsCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{FN_EXISTS}({})", self.expr)
     }
 }
 
@@ -130,6 +157,12 @@ impl Condition for InCondition {
     }
 }
 
+impl Display for InCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, IN, self.right)
+    }
+}
+
 #[derive(Clone)]
 pub struct EqualsCondition {
     left: Box<dyn Expression>,
@@ -159,6 +192,12 @@ impl Condition for EqualsCondition {
     }
 }
 
+impl Display for EqualsCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, EQUAL_DOUBLE, self.right)
+    }
+}
+
 #[derive(Clone)]
 pub struct NotEqualsCondition {
     left: Box<dyn Expression>,
@@ -182,6 +221,12 @@ impl Condition for NotEqualsCondition {
                 self.left, self.right
             ))),
         }
+    }
+}
+
+impl Display for NotEqualsCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, NOT_EQUAL, self.right)
     }
 }
 
@@ -213,6 +258,12 @@ impl Condition for GreaterThanCondition {
     }
 }
 
+impl Display for GreaterThanCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, GREATER_THAN, self.right)
+    }
+}
+
 #[derive(Clone)]
 pub struct LessThanCondition {
     left: Box<dyn Expression>,
@@ -236,6 +287,12 @@ impl Condition for LessThanCondition {
         })?)?;
 
         Ok(left < right)
+    }
+}
+
+impl Display for LessThanCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, LESS_THAN, self.right)
     }
 }
 
@@ -265,6 +322,12 @@ impl Condition for GreaterThanEqualCondition {
     }
 }
 
+impl Display for GreaterThanEqualCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, GREATER_THAN_EQUAL, self.right)
+    }
+}
+
 #[derive(Clone)]
 pub struct LessThanEqualCondition {
     left: Box<dyn Expression>,
@@ -288,5 +351,11 @@ impl Condition for LessThanEqualCondition {
         })?)?;
 
         Ok(left <= right)
+    }
+}
+
+impl Display for LessThanEqualCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, LESS_THAN_EQUAL, self.right)
     }
 }
