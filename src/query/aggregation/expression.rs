@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::{
-    super::{expression::Expression, Error, QueryResult},
+    super::{expression::Expression, QueryResult},
     Aggregation,
 };
 

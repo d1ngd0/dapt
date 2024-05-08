@@ -9,7 +9,7 @@ use crate::{
     Any, Dapt, Number, Path,
 };
 
-use super::{Aggregation, ExpressionAggregation};
+use super::Aggregation;
 
 #[derive(Clone)]
 pub struct SumAggregation {

@@ -131,7 +131,7 @@ struct GroupBy {
 }
 
 impl GroupBy {
-    pub fn process(&mut self, d: &Dapt) {
+    fn process(&mut self, d: &Dapt) {
         let mut hasher = Hasher::new();
 
         for field in self.fields.iter() {
@@ -319,6 +319,7 @@ impl Display for Top {
 struct FromClause(Vec<String>);
 
 impl FromClause {
+    #[allow(dead_code)]
     pub fn new(str: &str) -> QueryResult<FromClause> {
         let mut parser = Parser::from(str);
         parser.parse_from()
@@ -600,11 +601,6 @@ pub struct HavingClause {
 }
 
 impl HavingClause {
-    pub fn new(str: &str) -> QueryResult<HavingClause> {
-        let mut parser = Parser::from(str);
-        parser.parse_having()
-    }
-
     pub fn filter(&self, d: &Dapt) -> QueryResult<bool> {
         self.condition.evaluate(d)
     }
@@ -710,13 +706,13 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub fn parse_top(&mut self) -> QueryResult<Top> {
+    fn parse_top(&mut self) -> QueryResult<Top> {
         self.consume_token(TOP)?;
         let count = self.parse_positive_number()?;
         Ok(Top { count })
     }
 
-    pub fn parse_group(&mut self, select: SelectClause) -> QueryResult<GroupBy> {
+    fn parse_group(&mut self, select: SelectClause) -> QueryResult<GroupBy> {
         self.consume_token(GROUP)?;
         self.consume_token(BY)?;
 
@@ -738,7 +734,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub fn parse_order(&mut self) -> QueryResult<OrderBy> {
+    fn parse_order(&mut self) -> QueryResult<OrderBy> {
         self.consume_token(ORDER)?;
         self.consume_token(BY)?;
 
@@ -777,7 +773,7 @@ impl<'a> Parser<'a> {
         Ok(OrderBy { fields })
     }
 
-    pub fn parse_from(&mut self) -> QueryResult<FromClause> {
+    fn parse_from(&mut self) -> QueryResult<FromClause> {
         self.consume_token(FROM)?;
 
         let mut sources = Vec::new();
@@ -877,7 +873,7 @@ impl<'a> Parser<'a> {
     // parse_conjunction is a recursive descent parser that parses a conjunction
     // of conditions. It is a simple parser that only supports AND and OR
     // conjunctions.
-    pub fn parse_conjunction(&mut self) -> QueryResult<Conjunction> {
+    fn parse_conjunction(&mut self) -> QueryResult<Conjunction> {
         // start by parsing the first condition and placing it in a single conjuction
         // so assume the condition is a == b
         let mut conj = Conjunction::Single(self.parse_condition()?);
