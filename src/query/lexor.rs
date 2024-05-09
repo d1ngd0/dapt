@@ -92,6 +92,13 @@ impl<'a> Lexer<'a> {
     // whitespace_offset will return the number of bytes from
     // the header that are whitespace.
     fn consume_whitespace(&mut self) {
+        // if there is an escape token we are pasing some kind of string,
+        // so we don't want to consume this or we will lose strings with whitespace
+        // at the start like ' hello' or ' '
+        if self.escape_token.is_some() {
+            return;
+        }
+
         let c = self.path[self.head..].chars();
 
         for char in c {

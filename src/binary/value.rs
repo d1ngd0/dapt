@@ -377,6 +377,7 @@ pub enum Any<'a> {
     F32(f32),
     F64(f64),
     Str(&'a str),
+    String(String),
     Bytes(&'a [u8]),
     Char(char),
     Bool(bool),
@@ -477,6 +478,7 @@ impl From<Any<'_>> for OwnedAny {
             Any::F32(val) => OwnedAny::F32(val),
             Any::F64(val) => OwnedAny::F64(val),
             Any::Str(val) => OwnedAny::Str(val.to_string()),
+            Any::String(val) => OwnedAny::Str(val),
             Any::Bytes(val) => OwnedAny::Bytes(val.to_vec()),
             Any::Char(val) => OwnedAny::Char(val),
             Any::Bool(val) => OwnedAny::Bool(val),
@@ -591,6 +593,7 @@ impl From<Any<'_>> for String {
     fn from(value: Any) -> Self {
         match value {
             Any::Str(val) => String::from(val),
+            Any::String(val) => val,
             Any::U8(val) => val.to_string(),
             Any::U16(val) => val.to_string(),
             Any::U32(val) => val.to_string(),
@@ -974,6 +977,10 @@ macro_rules! impl_partial_eq_any {
                     Any::ISize(a) => number_eq_arm!(isize, a, other),
                     Any::F32(a) => number_eq_arm!(f32, a, other),
                     Any::F64(a) => number_eq_arm!(f64, a, other),
+                    Any::String(a) => match a.parse::<$type>() {
+                        Ok(val) => val == *other,
+                        Err(_) => false,
+                    },
                     Any::Str(a) => match a.parse::<$type>() {
                         Ok(val) => val == *other,
                         Err(_) => false,
@@ -1000,6 +1007,12 @@ impl_partial_eq_any!(isize);
 impl_partial_eq_any!(f32);
 impl_partial_eq_any!(f64);
 
+impl PartialEq<String> for Any<'_> {
+    fn eq(&self, other: &String) -> bool {
+        self.eq(&other.as_str())
+    }
+}
+
 impl PartialEq<&str> for Any<'_> {
     fn eq(&self, other: &&str) -> bool {
         match self {
@@ -1018,6 +1031,7 @@ impl PartialEq<&str> for Any<'_> {
             Any::Char(a) => a.to_string() == *other,
             Any::Bool(a) => a.to_string().to_lowercase() == other.to_lowercase(),
             Any::Str(a) => a == other,
+            Any::String(a) => a == *other,
             _ => false,
         }
     }
@@ -1120,6 +1134,7 @@ impl PartialEq for Any<'_> {
             Any::F32(a) => other == a,
             Any::F64(a) => other == a,
             Any::Str(a) => other == a,
+            Any::String(a) => other == a,
             Any::Bytes(a) => other == a,
             Any::Char(a) => other == a,
             Any::Bool(a) => other == a,

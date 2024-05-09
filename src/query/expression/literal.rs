@@ -23,6 +23,11 @@ impl StringExpression {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
         parser.consume_token(STRING_WRAP)?;
         let value = match parser.token() {
+            Some(tok) if tok == STRING_WRAP => {
+                return Ok(StringExpression {
+                    value: String::new(),
+                })
+            }
             Some(tok) => tok.to_string(),
             None => return Err(Error::unexpected_eof(parser.consumed())),
         };
@@ -32,7 +37,7 @@ impl StringExpression {
         match parser.token() {
             Some(STRING_WRAP) => Ok(StringExpression { value }),
             Some(tok) => Err(Error::with_history(
-                &format!("expected {STRING_WRAP} but got {tok}"),
+                &format!("string expected {STRING_WRAP} but got {tok}"),
                 parser.consumed(),
             )),
             None => Err(Error::unexpected_eof(parser.consumed())),

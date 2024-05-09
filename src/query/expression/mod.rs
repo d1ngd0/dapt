@@ -1,6 +1,7 @@
 mod literal;
 mod math;
 mod path;
+mod strings;
 
 use dyn_clone::DynClone;
 use std::fmt::Display;
@@ -8,6 +9,7 @@ use std::fmt::Display;
 pub use literal::*;
 pub use math::*;
 pub use path::*;
+pub use strings::*;
 
 use crate::{Any, Dapt};
 

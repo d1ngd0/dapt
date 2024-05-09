@@ -145,6 +145,7 @@ impl Binary {
             Any::F32(val) => self.add(parent, val),
             Any::F64(val) => self.add(parent, val),
             Any::Str(val) => self.add(parent, val),
+            Any::String(val) => self.add(parent, val),
             Any::Bool(val) => self.add(parent, val),
             Any::Char(val) => self.add(parent, val),
             Any::Bytes(val) => self.add(parent, val),

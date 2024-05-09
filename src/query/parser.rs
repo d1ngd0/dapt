@@ -11,23 +11,11 @@ use crate::{
     Any, Dapt, DaptBuilder, Path,
 };
 
-use super::aggregation::{
-    AddAggregation, Aggregation, AvgAggregation, CountAggregation, DivideAggregation,
-    ExpressionAggregation, ModulusAggregation, MultiplyAggregation, SubtractAggregation,
-    SumAggregation,
-};
 use super::{
-    condition::{
-        Condition, DefaultExpressCondition, EqualsCondition, GreaterThanCondition,
-        GreaterThanEqualCondition, InCondition, LessThanCondition, LessThanEqualCondition,
-        NoopCondition, NotEqualsCondition,
-    },
+    aggregation::*,
+    condition::*,
     error::{Error, History, QueryResult},
-    expression::{
-        AddExpression, ArrayLiteral, BoolExpression, DivideExpression, Expression, MapLiteral,
-        ModulusExpression, MultiplyExpression, NullExpression, NumberExpression, PathExpression,
-        StringExpression, SubtractExpression,
-    },
+    expression::*,
     lexor::Lexer,
 };
 
@@ -712,19 +700,30 @@ impl<'a> Parser<'a> {
         Ok(Top { count })
     }
 
+    pub fn continue_if(&mut self, tok: &str) -> bool {
+        let peaked = match self.lex.peak() {
+            Some(val) => val,
+            None => return false,
+        };
+
+        if peaked.to_uppercase() == tok {
+            let _ = self.token(); // consume the token
+            true
+        } else {
+            false
+        }
+    }
+
     fn parse_group(&mut self, select: SelectClause) -> QueryResult<GroupBy> {
         self.consume_token(GROUP)?;
         self.consume_token(BY)?;
 
         let mut fields = Vec::new();
         let groups = HashMap::new();
-        loop {
+
+        fields.push(self.parse_expression()?);
+        while self.continue_if(FROM_SEP) {
             fields.push(self.parse_expression()?);
-            if let Some(FROM_SEP) = self.lex.peak() {
-                self.consume_token(FROM_SEP)?;
-            } else {
-                break;
-            }
         }
 
         Ok(GroupBy {
@@ -763,9 +762,7 @@ impl<'a> Parser<'a> {
                 }),
             }
 
-            if let Some(FROM_SEP) = self.lex.peak() {
-                self.consume_token(FROM_SEP)?;
-            } else {
+            if !self.continue_if(FROM_SEP) {
                 break;
             }
         }
@@ -777,13 +774,10 @@ impl<'a> Parser<'a> {
         self.consume_token(FROM)?;
 
         let mut sources = Vec::new();
-        loop {
+
+        sources.push(self.parse_string(KEY_WRAP)?);
+        while self.continue_if(FROM_SEP) {
             sources.push(self.parse_string(KEY_WRAP)?);
-            if let Some(FROM_SEP) = self.lex.peak() {
-                self.consume_token(FROM_SEP)?;
-            } else {
-                break;
-            }
         }
 
         Ok(FromClause(sources))
@@ -793,13 +787,10 @@ impl<'a> Parser<'a> {
         self.consume_token(SELECT)?;
 
         let mut fields = Vec::new();
-        loop {
+        fields.push(self.parse_column()?);
+
+        while self.continue_if(SELECT_SEP) {
             fields.push(self.parse_column()?);
-            // peak at the next token to see what we should do
-            match self.lex.peak() {
-                Some(SELECT_SEP) => self.consume_token(SELECT_SEP)?,
-                _ => break,
-            }
         }
 
         Ok(SelectClause { fields })
@@ -1064,6 +1055,13 @@ impl<'a> Parser<'a> {
             FN_MULTIPLY => Ok(Box::new(MultiplyExpression::from_parser(self)?)),
             FN_DIVIDE => Ok(Box::new(DivideExpression::from_parser(self)?)),
             FN_MODULUS => Ok(Box::new(ModulusExpression::from_parser(self)?)),
+            FN_LOWER => Ok(Box::new(StringLower::from_parser(self)?)),
+            FN_UPPER => Ok(Box::new(StringUpper::from_parser(self)?)),
+            FN_LENGTH => Ok(Box::new(StringLength::from_parser(self)?)),
+            FN_TRIM => Ok(Box::new(StringTrim::from_parser(self)?)),
+            FN_TRIM_LEFT => Ok(Box::new(StringTrimLeft::from_parser(self)?)),
+            FN_TRIM_RIGHT => Ok(Box::new(StringTrimRight::from_parser(self)?)),
+            FN_CONCAT => Ok(Box::new(StringConcat::from_parser(self)?)),
             TRUE => Ok(Box::new(BoolExpression::from_parser(self)?)),
             FALSE => Ok(Box::new(BoolExpression::from_parser(self)?)),
             NULL => Ok(Box::new(NullExpression::from_parser(self)?)),
@@ -1185,6 +1183,7 @@ impl Hasher {
             Any::F64(f) => self.hash_combine(city_hash_64(&f.to_ne_bytes())),
             Any::F32(f) => self.hash_combine(city_hash_64(&f.to_ne_bytes())),
             Any::Str(s) => self.hash_combine(city_hash_64(s.as_bytes())),
+            Any::String(s) => self.hash_combine(city_hash_64(s.as_bytes())),
             Any::Array(a) => {
                 for v in a {
                     self.hash(v);
@@ -1235,6 +1234,16 @@ mod tests {
         assert_expression!(r#"{"a": 10}"#, "mul(\"a\", 10)", Any::U64(100));
         assert_expression!(r#"{"a": 10}"#, "div(\"a\", 5)", Any::U64(2));
         assert_expression!(r#"{"a": 10}"#, "mod(\"a\", 4)", Any::USize(2));
+        assert_expression!(r#"{"a": "HELLO"}"#, "lower(\"a\")", "hello");
+        assert_expression!(r#"{"a": "hello"}"#, "upper(\"a\")", "HELLO");
+        assert_expression!(r#"{"a": " hello "}"#, "trim(\"a\")", "hello");
+        assert_expression!(r#"{"a": " hello "}"#, "trim_left(\"a\")", "hello ");
+        assert_expression!(r#"{"a": " hello "}"#, "trim_right(\"a\")", " hello");
+        assert_expression!(
+            r#"{"a": "hello", "b": "world"}"#,
+            "concat(\"a\", ' ', \"b\")",
+            "hello world"
+        );
     }
 
     macro_rules! assert_condition {
