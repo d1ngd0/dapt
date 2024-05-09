@@ -1062,6 +1062,7 @@ impl<'a> Parser<'a> {
             FN_TRIM_LEFT => Ok(Box::new(StringTrimLeft::from_parser(self)?)),
             FN_TRIM_RIGHT => Ok(Box::new(StringTrimRight::from_parser(self)?)),
             FN_CONCAT => Ok(Box::new(StringConcat::from_parser(self)?)),
+            FN_SPLIT => Ok(Box::new(StringSplit::from_parser(self)?)),
             TRUE => Ok(Box::new(BoolExpression::from_parser(self)?)),
             FALSE => Ok(Box::new(BoolExpression::from_parser(self)?)),
             NULL => Ok(Box::new(NullExpression::from_parser(self)?)),
@@ -1244,6 +1245,11 @@ mod tests {
             "concat(\"a\", ' ', \"b\")",
             "hello world"
         );
+        assert_expression!(
+            r#"{"a": "hello world"}"#,
+            "split(\"a\", ' ')",
+            Any::Array(vec![Any::Str("hello"), Any::Str("world")])
+        );
     }
 
     macro_rules! assert_condition {
@@ -1260,6 +1266,18 @@ mod tests {
     fn test_condition() {
         assert_condition!(r#"{"a": 10, "b": 9}"#, r#" "a" == "b" "#, false);
         assert_condition!(r#"{"a": 10, "b": "10"}"#, r#" "a" == "b" "#, true);
+        assert_condition!(
+            r#"{"a": "hello world"}"#,
+            r#" split("a", ' ') == ['hello', 'world'] "#,
+            true
+        );
+
+        // adding this because it's cool, we fine a word in the string
+        assert_condition!(
+            r#"{"a": "hello world we are going to find a word in this string"}"#,
+            r#" 'going' in split("a", ' ') "#,
+            true
+        );
     }
 
     macro_rules! assert_conjunction {

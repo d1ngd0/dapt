@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     query::{
-        parser::{Parser, FN_CLOSE, FN_OPEN, FN_SEP},
+        parser::{Parser, FN_CLOSE, FN_OPEN, FN_SEP, STRING_WRAP},
         QueryResult,
     },
     Any,
@@ -17,6 +17,7 @@ pub const FN_TRIM: &str = "TRIM";
 pub const FN_TRIM_LEFT: &str = "TRIM_LEFT";
 pub const FN_TRIM_RIGHT: &str = "TRIM_RIGHT";
 pub const FN_CONCAT: &str = "CONCAT";
+pub const FN_SPLIT: &str = "SPLIT";
 
 macro_rules! simple_string_fn {
     ($name:ident, $fn:expr) => {
@@ -176,5 +177,53 @@ impl Expression for StringConcat {
         }
 
         Some(Any::String(result))
+    }
+}
+
+#[derive(Clone)]
+pub struct StringSplit {
+    value: Box<dyn Expression>,
+    delimiter: String,
+}
+
+impl StringSplit {
+    pub fn from_parser<'a>(p: &mut Parser<'a>) -> QueryResult<StringSplit> {
+        p.consume_token(FN_SPLIT)?;
+        p.consume_token(FN_OPEN)?;
+
+        let value = p.parse_expression()?;
+        p.consume_token(FN_SEP)?;
+        let delimiter = p.parse_string(STRING_WRAP)?;
+
+        p.consume_token(FN_CLOSE)?;
+
+        Ok(StringSplit { value, delimiter })
+    }
+}
+
+impl Display for StringSplit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}({}, '{}')", FN_SPLIT, self.value, self.delimiter)
+    }
+}
+
+impl Expression for StringSplit {
+    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b crate::Dapt) -> Option<Any<'a>> {
+        let value = self.value.evaluate(d)?;
+
+        match value {
+            Any::String(s) => {
+                let arr = s
+                    .split(&self.delimiter)
+                    .map(|s| Any::String(s.to_string()))
+                    .collect();
+                Some(Any::Array(arr))
+            }
+            Any::Str(s) => {
+                let arr = s.split(&self.delimiter).map(|s| Any::Str(s)).collect();
+                Some(Any::Array(arr))
+            }
+            _ => None,
+        }
     }
 }
