@@ -40,3 +40,66 @@ pub trait Aggregation: Display + DynClone {
     fn composable(&self, expr: &Path) -> (Vec<Column>, Box<dyn Aggregation>);
 }
 dyn_clone::clone_trait_object!(Aggregation);
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::query::parser::Parser;
+
+    macro_rules! assert_aggregation {
+        ( $expr:expr, $expected:expr, $($source:expr),+) => {
+            let mut parser = Parser::from($expr);
+            let mut expr = parser.parse_aggregation().unwrap();
+            let sources = vec![$(serde_json::from_str($source).unwrap()),+];
+            for d in sources {
+                expr.process(&d);
+            }
+            let result = expr.result().unwrap();
+            assert_eq!(result, $expected);
+        };
+    }
+
+    #[test]
+    fn test_aggregation() {
+        assert_aggregation!(
+            r#"SUM("a")"#,
+            Any::USize(6),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        assert_aggregation!(
+            r#"count()"#,
+            Any::USize(3),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        assert_aggregation!(
+            r#"count("c")"#,
+            Any::USize(1),
+            r#"{"a": 1}"#,
+            r#"{"b": 2}"#,
+            r#"{"c": 3}"#
+        );
+
+        assert_aggregation!(
+            r#""a""#,
+            Any::USize(1),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        // literal, just to prove it can be done
+        assert_aggregation!(
+            r#"10"#,
+            Any::USize(10),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+    }
+}

@@ -31,33 +31,82 @@ impl<'a> From<&'a str> for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
+    // consumed returns the content which has already been tokenized
+    // this is useful for creating error messages that point to where we
+    // last were. This will not show the any peak tokens.
+    // pub fn consumed(&self) -> &'a str {
+    //     &self.path[..self.head]
+    // }
+
+    // token returns the next token in the path. When there are no more tokens
+    // it returns None. All tokens returns are references to the original string
+    // meaning all escape characters are still present.
     pub fn token(&mut self) -> Option<&'a str> {
+        let (tok, next_index) = self.full_next()?;
+        self.head = next_index;
+        Some(tok)
+    }
+
+    // peak returns the next token without moving the head forward
+    // pub fn peak(&mut self) -> Option<&'a str> {
+    //     // keep track of "escape_token" state before the call so we can
+    //     // set it back to the original state after the call
+    //     let escaped = self.escape_token;
+    //     let (tok, _) = self.full_next()?;
+    //     self.escape_token = escaped;
+    //     Some(tok)
+    // }
+
+    // full_nest returns the next token, and stiches together tokens like >=
+    //
+    fn full_next(&mut self) -> Option<(&'a str, usize)> {
         if self.head >= self.path.len() {
             return None;
         }
 
-        let c = self.path[self.head..].char_indices();
+        let (tok, next_index) = self.next(self.head)?;
+        match tok {
+            // by doing a little work in special cases we can make sure
+            // we return whole tokens.
+            // "=" | ">" | "<" | "!" => {
+            //     if let Some((tok, next_index)) = self.next(next_index) {
+            //         if tok == "=" {
+            //             return Some((&self.path[self.head..next_index], next_index));
+            //         }
+            //     }
+            // }
+            // default case just let it fall through
+            _ => {}
+        }
+
+        Some((tok, next_index))
+    }
+
+    // next returns the next token without moving the head forward. Tokens viewed
+    // this way will not show up in consumed until token is called. This internal
+    // function does not stitch tokens together like >=. Use peak instead. This function
+    // also assumes there is no whitespace at the head specified
+    fn next(&mut self, head: usize) -> Option<(&'a str, usize)> {
+        let c = self.path[head..].chars();
         let mut tok: Option<&str> = None;
-        let mut next_index = self.head;
+        let mut next_index = head;
         let mut escape_next = false;
 
-        'charloop: for (i, char) in c {
-            let index = i + self.head;
+        let escape_all = self.escape_token.is_some();
 
+        // important, for every path out of this loop you MUST consider what to
+        // do with next_index given your context.
+        'charloop: for char in c {
+            // Any special characters should be listed here. They can all be escaped
             match char {
                 TOKEN_DOT | TOKEN_WILDCARD | TOKEN_RECURSIVE | TOKEN_ARRAY_OPEN
                 | TOKEN_ARRAY_CLOSE | TOKEN_FIRST_OPEN | TOKEN_FIRST_CLOSE | TOKEN_MULTI_OPEN
                 | TOKEN_MULTI_CLOSE | TOKEN_FIRST_SEP | TOKEN_MULTI_SEP => {
                     // if the previous token was an escape token, we just want to add this to the
                     // existing token
-                    let escape_all = match self.escape_token {
-                        None => false,
-                        Some(_) => true,
-                    };
-
                     if escape_next || escape_all {
-                        tok = Some(&self.path[self.head..index + char.len_utf8()]);
-                        next_index = index + char.len_utf8();
+                        next_index += char.len_utf8();
+                        tok = Some(&self.path[head..next_index]);
                         escape_next = false;
                         continue 'charloop;
                     }
@@ -71,20 +120,31 @@ impl<'a> Lexer<'a> {
                     }
 
                     // otherwise we are starting with a token, so lets return that
-                    tok = Some(&self.path[self.head..index + char.len_utf8()]);
-                    next_index = index + char.len_utf8();
+                    next_index += char.len_utf8();
+                    tok = Some(&self.path[head..next_index]);
                     break 'charloop;
                 }
+                // Drives escaping logic, this will escape the next character
                 TOKEN_ESCAPE => {
                     // collect the escapes so we can return something if the input is "\\\\\\\"
-                    tok = Some(&self.path[self.head..index + char.len_utf8()]);
+                    tok = Some(&self.path[head..next_index]);
+                    next_index += char.len_utf8();
                     escape_next = true;
                 }
+                // If something wraps something, and you want to escape everything inside
+                // you should put it here. The wrapping token will be returned as it's
+                // own token, and then the contents will be returned as a single token
+                // followed by another wrapping token. Can use \ to escape. Escaped strings
+                // are returned as is (with their escaping characters) so we can return a
+                // reference
                 TOKEN_STRING_WRAP | TOKEN_REGEX => {
                     // if the previous character was an escape we can ignore
                     // the double quote
+
                     if escape_next {
                         escape_next = false;
+                        next_index += char.len_utf8();
+                        tok = Some(&self.path[head..next_index]);
                         continue;
                     }
 
@@ -93,14 +153,16 @@ impl<'a> Lexer<'a> {
                     // these two.
                     if let Some(t) = self.escape_token {
                         if t != char {
+                            next_index += char.len_utf8();
+                            tok = Some(&self.path[head..next_index]);
                             continue;
                         }
                     }
 
                     // return the wrapping token as it's own token.
                     if let None = tok {
-                        tok = Some(&self.path[self.head..index + char.len_utf8()]);
-                        next_index = index + char.len_utf8();
+                        next_index += char.len_utf8();
+                        tok = Some(&self.path[head..next_index]);
 
                         // toggle escaping when we encounter an escape token
                         match self.escape_token {
@@ -114,8 +176,7 @@ impl<'a> Lexer<'a> {
                     if let Some(_) = self.escape_token {
                         // after we turn it off collect the token, without
                         // grabbing the ending "
-                        tok = Some(&self.path[self.head..index]);
-                        next_index = index;
+                        tok = Some(&self.path[head..next_index]);
                         break 'charloop;
                     }
 
@@ -125,17 +186,20 @@ impl<'a> Lexer<'a> {
                         break 'charloop;
                     }
                 }
+                // Anything not special should be wrapped up here
                 _ => {
                     escape_next = false;
-                    tok = Some(&self.path[self.head..index + char.len_utf8()]);
-                    next_index = index + char.len_utf8();
+                    next_index += char.len_utf8();
+                    tok = Some(&self.path[head..next_index]);
                 }
             }
         }
 
-        // move the head forward to the last seen index
-        self.head = next_index;
-        tok
+        if let Some(tok) = tok {
+            Some((tok, next_index))
+        } else {
+            None
+        }
     }
 }
 
@@ -205,5 +269,7 @@ mod test {
         );
         test_lexor!("/.*/.something", "/", ".*", "/", ".", "something");
         test_lexor!("/asd\"asdf/", "/", "asd\"asdf", "/");
+        test_lexor!(r#"\"a.b.c\""#, "\\\"a", ".", "b", ".", "c\\\"");
+        test_lexor!(r#"Im.am a.fish"#, "Im", ".", "am a", ".", "fish");
     }
 }

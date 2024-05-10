@@ -87,7 +87,7 @@ impl Node {
     }
 
     pub fn new_field_literal(field: &str) -> ParseResult<Node> {
-        Ok(Node::FieldLiteral(FieldLiteral::new(field)))
+        Ok(Node::FieldLiteral(FieldLiteral::from_escaped(field)))
     }
 }
 
@@ -286,7 +286,7 @@ impl Parser<'_> {
 
     fn parse_wrapped_field_literal(&mut self) -> ParseResult<Node> {
         let node = match self.lex.token() {
-            Some(tok) => FieldLiteral::new(tok),
+            Some(tok) => FieldLiteral::from_escaped(tok),
             None => return Err(ParseError::UnexpectedEOF),
         };
 
@@ -459,5 +459,6 @@ mod tests {
         test_parse!("Im.am a.fish", "Im", "\"am a\"", "fish");
         test_parse!("a.b.c.d.e", "a", "b", "c", "d", "e");
         test_parse!("a.\"b.a\".c", "a", "\"b.a\"", "c");
+        test_parse!("a.b\\.a.c", "a", "\"b.a\"", "c");
     }
 }

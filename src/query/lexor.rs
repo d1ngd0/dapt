@@ -177,6 +177,7 @@ impl<'a> Lexer<'a> {
                 TOKEN_ESCAPE => {
                     // collect the escapes so we can return something if the input is "\\\\\\\"
                     tok = Some(&self.path[head..next_index]);
+                    next_index += char.len_utf8();
                     escape_next = true;
                 }
                 // If something wraps something, and you want to escape everything inside
@@ -188,9 +189,11 @@ impl<'a> Lexer<'a> {
                 TOKEN_KEY | TOKEN_STRING_LITERAL => {
                     // if the previous character was an escape we can ignore
                     // the double quote
+
                     if escape_next {
                         escape_next = false;
                         next_index += char.len_utf8();
+                        tok = Some(&self.path[head..next_index]);
                         continue;
                     }
 
@@ -200,6 +203,7 @@ impl<'a> Lexer<'a> {
                     if let Some(t) = self.escape_token {
                         if t != char {
                             next_index += char.len_utf8();
+                            tok = Some(&self.path[head..next_index]);
                             continue;
                         }
                     }
@@ -345,6 +349,16 @@ mod test {
 
         test_lexor!("()", "(", ")");
         test_lexor!(r#" "a" == "b" "#, "\"", "a", "\"", "==", "\"", "b", "\"");
+
+        test_lexor!(
+            r#"length("\"a.b.c\"")"#,
+            "length",
+            "(",
+            "\"",
+            r#"\"a.b.c\""#,
+            "\"",
+            ")"
+        );
     }
 
     #[test]

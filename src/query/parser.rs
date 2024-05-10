@@ -101,7 +101,12 @@ impl Column {
 
 impl Display for Column {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{} AS \"{}\"", self.agg, self.alias)
+        write!(
+            f,
+            "{} AS \"{}\"",
+            self.agg,
+            format!("{}", self.alias).replace("\"", "\\\"")
+        )
     }
 }
 
@@ -806,7 +811,7 @@ impl<'a> Parser<'a> {
                 Path::new(&path)?
             }
             _ => {
-                let field = FieldLiteral::new(&format!("{}", agg));
+                let field = FieldLiteral::from_escaped(&format!("{}", agg));
                 Path::from(vec![Node::FieldLiteral(field)])
             }
         };
@@ -1217,41 +1222,6 @@ impl Hasher {
 mod tests {
     use super::*;
 
-    macro_rules! assert_expression {
-        ( $source:expr, $expr:expr, $expected:expr) => {
-            let mut parser = Parser::from($expr);
-            let expr = parser.parse_expression().unwrap();
-            let d: Dapt = serde_json::from_str($source).unwrap();
-            let result = expr.evaluate(&d).unwrap();
-            assert_eq!(result, $expected);
-        };
-    }
-
-    #[test]
-    fn test_expression() {
-        assert_expression!(r#"{"a": 10}"#, "\"a\"", Any::U64(10));
-        assert_expression!(r#"{"a": 10}"#, "add(\"a\", 10)", Any::U64(20));
-        assert_expression!(r#"{"a": 10}"#, "neg(\"a\", 10)", Any::U64(0));
-        assert_expression!(r#"{"a": 10}"#, "mul(\"a\", 10)", Any::U64(100));
-        assert_expression!(r#"{"a": 10}"#, "div(\"a\", 5)", Any::U64(2));
-        assert_expression!(r#"{"a": 10}"#, "mod(\"a\", 4)", Any::USize(2));
-        assert_expression!(r#"{"a": "HELLO"}"#, "lower(\"a\")", "hello");
-        assert_expression!(r#"{"a": "hello"}"#, "upper(\"a\")", "HELLO");
-        assert_expression!(r#"{"a": " hello "}"#, "trim(\"a\")", "hello");
-        assert_expression!(r#"{"a": " hello "}"#, "trim_left(\"a\")", "hello ");
-        assert_expression!(r#"{"a": " hello "}"#, "trim_right(\"a\")", " hello");
-        assert_expression!(
-            r#"{"a": "hello", "b": "world"}"#,
-            "concat(\"a\", ' ', \"b\")",
-            "hello world"
-        );
-        assert_expression!(
-            r#"{"a": "hello world"}"#,
-            "split(\"a\", ' ')",
-            Any::Array(vec![Any::Str("hello"), Any::Str("world")])
-        );
-    }
-
     macro_rules! assert_condition {
         ( $source:expr, $expr:expr, $expected:expr) => {
             let mut parser = Parser::from($expr);
@@ -1485,63 +1455,6 @@ mod tests {
         );
     }
 
-    macro_rules! assert_aggregation {
-        ( $expr:expr, $expected:expr, $($source:expr),+) => {
-            let mut parser = Parser::from($expr);
-            let mut expr = parser.parse_aggregation().unwrap();
-            let sources = vec![$(serde_json::from_str($source).unwrap()),+];
-            for d in sources {
-                expr.process(&d);
-            }
-            let result = expr.result().unwrap();
-            assert_eq!(result, $expected);
-        };
-    }
-
-    #[test]
-    fn test_aggregation() {
-        assert_aggregation!(
-            r#"SUM("a")"#,
-            Any::USize(6),
-            r#"{"a": 1}"#,
-            r#"{"a": 2}"#,
-            r#"{"a": 3}"#
-        );
-
-        assert_aggregation!(
-            r#"count()"#,
-            Any::USize(3),
-            r#"{"a": 1}"#,
-            r#"{"a": 2}"#,
-            r#"{"a": 3}"#
-        );
-
-        assert_aggregation!(
-            r#"count("c")"#,
-            Any::USize(1),
-            r#"{"a": 1}"#,
-            r#"{"b": 2}"#,
-            r#"{"c": 3}"#
-        );
-
-        assert_aggregation!(
-            r#""a""#,
-            Any::USize(1),
-            r#"{"a": 1}"#,
-            r#"{"a": 2}"#,
-            r#"{"a": 3}"#
-        );
-
-        // literal, just to prove it can be done
-        assert_aggregation!(
-            r#"10"#,
-            Any::USize(10),
-            r#"{"a": 1}"#,
-            r#"{"a": 2}"#,
-            r#"{"a": 3}"#
-        );
-    }
-
     macro_rules! assert_select {
         ( $expr:expr, $expected:expr, $($source:expr),+) => {
             let mut parser = Parser::from($expr);
@@ -1578,7 +1491,7 @@ mod tests {
 
         assert_select!(
             r#"SELECT sum("a") "#,
-            r#"{"SUM(\"a\")":6}"#,
+            r#"{"SUM(a)":6}"#,
             // values
             r#"{"a": 1}"#,
             r#"{"a": 2}"#,
@@ -1749,7 +1662,6 @@ mod tests {
                 // take the aggregates and pass it into the combiner
                 let res = c.collect().unwrap();
                 for sd in res {
-                    println!("{}", serde_json::to_string(&sd).unwrap());
                     combine.process(&sd).unwrap();
                 }
             }

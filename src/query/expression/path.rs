@@ -33,7 +33,10 @@ impl PathExpression {
             None => return Err(Error::unexpected_eof(parser.consumed())),
         };
 
-        let path = Path::try_from(key)
+        // This a bit of a hack so that we can use the \ escaping character in
+        // a path. If you have a " in your path you are going to have to do terrible
+        // things
+        let path = Path::try_from(key.replace("\\\"", "\"").as_str())
             .map_err(|e| Error::with_history(&e.to_string(), parser.consumed()))?;
 
         // consume the final " token, and return. If we get a different token
@@ -69,6 +72,6 @@ impl Expression for PathExpression {
 
 impl Display for PathExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\"", self.path)
+        write!(f, "\"{}\"", format!("{}", self.path).replace("\"", "\\\""))
     }
 }

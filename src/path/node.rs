@@ -38,12 +38,35 @@ pub struct FieldLiteral {
 // field literal that points to the json structure `{"log.level": "info"}`.
 impl FieldLiteral {
     pub fn new(name: &str) -> FieldLiteral {
+        FieldLiteral {
+            name: name.to_string(),
+        }
+    }
+
+    pub fn from_escaped(name: &str) -> FieldLiteral {
         // name is a string which optionally is wrapped in double quotes.
         // here we remove the double quotes if they exist and remove any
         // escape characters.
-        FieldLiteral {
-            name: name.trim_matches('"').replace("\\\"", "\""),
+        let mut c = name.chars().peekable();
+        let mut name = String::with_capacity(name.len());
+
+        while let Some(character) = c.next() {
+            match character {
+                '\\' => {
+                    // whatever comes after the escape should be...
+                    // escaped.
+                    if let Some(next) = c.next() {
+                        name.push(next);
+                    }
+                }
+                // consume any ", at this point we must believe we have a
+                // valid string since the lexer gave it to us
+                '"' => (),
+                _ => name.push(character),
+            }
         }
+
+        FieldLiteral { name }
     }
 }
 
@@ -140,7 +163,17 @@ impl fmt::Display for FieldLiteral {
         // it in double quotes. We will wrap spaces in double
         // quotes too, even though we don't have to.
         if self.name.contains('.') || self.name.contains('"') || self.name.contains(' ') {
-            write!(f, "\"{}\"", self.name)
+            write!(f, "\"")?;
+            let c = self.name.chars();
+            for character in c {
+                match character {
+                    '"' => {
+                        write!(f, "\\\"")?;
+                    }
+                    _ => write!(f, "{}", character)?,
+                }
+            }
+            write!(f, "\"")
         } else {
             write!(f, "{}", self.name)
         }
