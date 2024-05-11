@@ -54,7 +54,9 @@ impl Aggregation for ExpressionAggregation {
     }
 
     fn result<'a>(&'a mut self) -> Option<Any<'a>> {
-        Some(self.value.as_ref()?.into())
+        let v = self.value.take()?;
+        Some(Any::from(v)) // This actually doesn't work for maps and bytes, because we drop the
+                           // data TODO: we need to fix this at some point
     }
 
     // since this is essentially first, we can just return the first value

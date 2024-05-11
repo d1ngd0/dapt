@@ -501,6 +501,40 @@ impl From<Any<'_>> for OwnedAny {
     }
 }
 
+impl From<OwnedAny> for Any<'_> {
+    fn from(value: OwnedAny) -> Self {
+        match value {
+            OwnedAny::USize(val) => Any::USize(val),
+            OwnedAny::U8(val) => Any::U8(val),
+            OwnedAny::U16(val) => Any::U16(val),
+            OwnedAny::U32(val) => Any::U32(val),
+            OwnedAny::U64(val) => Any::U64(val),
+            OwnedAny::U128(val) => Any::U128(val),
+            OwnedAny::ISize(val) => Any::ISize(val),
+            OwnedAny::I8(val) => Any::I8(val),
+            OwnedAny::I16(val) => Any::I16(val),
+            OwnedAny::I32(val) => Any::I32(val),
+            OwnedAny::I64(val) => Any::I64(val),
+            OwnedAny::I128(val) => Any::I128(val),
+            OwnedAny::F32(val) => Any::F32(val),
+            OwnedAny::F64(val) => Any::F64(val),
+            OwnedAny::Str(val) => Any::String(val.to_string()),
+            OwnedAny::Bytes(val) => Any::Null, // this is gross, fix it
+            OwnedAny::Char(val) => Any::Char(val),
+            OwnedAny::Bool(val) => Any::Bool(val),
+            OwnedAny::Array(val) => {
+                let mut items = Vec::with_capacity(val.len());
+                for item in val {
+                    items.push(Any::from(item));
+                }
+                Any::Array(items)
+            }
+            OwnedAny::Map(val) => Any::Null, // this is gross, fix it
+            OwnedAny::Null => Any::Null,
+        }
+    }
+}
+
 impl<'a> From<&'a OwnedAny> for Any<'a> {
     fn from(value: &'a OwnedAny) -> Self {
         match value {

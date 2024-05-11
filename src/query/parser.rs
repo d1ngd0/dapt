@@ -2,6 +2,7 @@ use core::fmt;
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
+    time::{Duration, SystemTime},
 };
 
 use cityhash::city_hash_64;
@@ -32,6 +33,7 @@ pub const BY: &str = "BY";
 pub const ORDER_ASC: &str = "ASC";
 pub const ORDER_DESC: &str = "DESC";
 pub const TOP: &str = "TOP";
+pub const INTERVAL: &str = "INTERVAL";
 pub const SUB_CONDITION: &str = "(";
 pub const SUB_CONDITION_END: &str = ")";
 pub const EQUAL: &str = "=";
@@ -148,7 +150,6 @@ impl GroupBy {
 
     fn collect(&mut self, having: &HavingClause) -> QueryResult<Vec<Dapt>> {
         let mut results = Vec::new();
-
         for group in self.groups.values_mut() {
             let d = group.collect()?;
             match having.filter(&d) {
@@ -342,6 +343,26 @@ impl Display for FromClause {
     }
 }
 
+#[derive(Clone)]
+struct Interval {
+    last_output: SystemTime,
+    duration: Duration,
+}
+
+impl Interval {
+    fn should_fire_and_reset(&mut self) -> bool {
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(self.last_output).unwrap();
+
+        if elapsed >= self.duration {
+            self.last_output = now;
+            return true;
+        }
+
+        false
+    }
+}
+
 // Query is the parsed representation of a query. It holds a from, where, having
 // group by (which houses the select clause), order by and top. The only thing required
 // to parse a query is the `SELECT` portion of the query. The rest is optional.
@@ -354,6 +375,7 @@ pub struct Query {
     group: GroupBy,
     order: OrderBy,
     top: Option<Top>,
+    interval: Interval,
 }
 
 impl Query {
@@ -380,6 +402,18 @@ impl Query {
         Ok(set)
     }
 
+    // process_and_collect utilizes the defined interval to determine if the
+    // query should return data. If there is no data to return option will be
+    // none
+    pub fn process_and_collect(&mut self, d: &Dapt) -> QueryResult<Option<Vec<Dapt>>> {
+        self.process(d)?;
+        if self.interval.should_fire_and_reset() {
+            Ok(Some(self.collect()?))
+        } else {
+            Ok(None)
+        }
+    }
+
     // composite returns two query objects, The first query can be
     // run on multiple data sets concurrently, the second query
     // is then used to combine the responses of the first query into
@@ -397,6 +431,7 @@ impl Query {
                 group: composable,
                 order: OrderBy { fields: Vec::new() },
                 top: None,
+                interval: self.interval.clone(),
             },
             // where can only be done at the composable step
             Query {
@@ -408,6 +443,7 @@ impl Query {
                 group: combine,
                 order: self.order.clone(),
                 top: self.top.clone(),
+                interval: self.interval.clone(),
             },
         )
     }
@@ -637,56 +673,58 @@ impl<'a> Parser<'a> {
 
         // from is optional, so we can create an empty from cluase
         // if there is no value.
-        let from = if let Some(FROM) = self.lex.peak() {
-            self.parse_from()?
-        } else {
-            FromClause(Vec::new())
+        let from = match self.lex.peak() {
+            Some(v) if v.to_uppercase() == FROM => self.parse_from()?,
+            _ => FromClause(Vec::new()),
         };
 
         // where is optional, so we can create an empty where cluase
         // if there is no value.
-        let where_clause = if let Some(WHERE) = self.lex.peak() {
-            self.parse_where()?
-        } else {
-            // this always evaluates to true
-            WhereClause {
+        let where_clause = match self.lex.peak() {
+            Some(v) if v.to_uppercase() == WHERE => self.parse_where()?,
+            _ => WhereClause {
                 condition: Conjunction::Single(Box::new(NoopCondition::default())),
-            }
+            },
         };
 
         // having is also optional
-        let having = if let Some(HAVING) = self.lex.peak() {
-            self.parse_having()?
-        } else {
-            // this always evaluates to true
-            HavingClause {
+        let having = match self.lex.peak() {
+            Some(v) if v.to_uppercase() == HAVING => self.parse_having()?,
+            _ => HavingClause {
                 condition: Conjunction::Single(Box::new(NoopCondition::default())),
+            },
+        };
+
+        let group = match self.lex.peak() {
+            Some(v) if v.to_uppercase() == GROUP => self.parse_group(select)?,
+            _ => {
+                let mut groups = HashMap::new();
+                groups.insert(0, select.clone());
+
+                GroupBy {
+                    fields: Vec::new(),
+                    groups,
+                    template: select,
+                }
             }
         };
 
-        let group = if let Some(GROUP) = self.lex.peak() {
-            self.parse_group(select)?
-        } else {
-            let mut groups = HashMap::new();
-            groups.insert(0, select.clone());
-
-            GroupBy {
-                fields: Vec::new(),
-                groups,
-                template: select,
-            }
+        let order = match self.lex.peak() {
+            Some(v) if v.to_uppercase() == ORDER => self.parse_order()?,
+            _ => OrderBy { fields: Vec::new() },
         };
 
-        let order = if let Some(ORDER) = self.lex.peak() {
-            self.parse_order()?
-        } else {
-            OrderBy { fields: Vec::new() }
+        let top = match self.lex.peak() {
+            Some(v) if v.to_uppercase() == TOP => Some(self.parse_top()?),
+            _ => None,
         };
 
-        let top = if let Some(TOP) = self.lex.peak() {
-            Some(self.parse_top()?)
-        } else {
-            None
+        let interval = match self.lex.peak() {
+            Some(v) if v.to_uppercase() == INTERVAL => self.parse_interval()?,
+            _ => Interval {
+                last_output: SystemTime::now(),
+                duration: Duration::from_secs(0),
+            },
         };
 
         Ok(Query {
@@ -696,6 +734,17 @@ impl<'a> Parser<'a> {
             group,
             order,
             top,
+            interval,
+        })
+    }
+
+    fn parse_interval(&mut self) -> QueryResult<Interval> {
+        self.consume_token(INTERVAL)?;
+        let duration = self.parse_string(STRING_WRAP)?;
+
+        Ok(Interval {
+            last_output: SystemTime::now(),
+            duration: parse_duration::parse(&duration)?,
         })
     }
 

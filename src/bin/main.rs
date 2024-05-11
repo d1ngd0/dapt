@@ -2,7 +2,6 @@ use std::{
     env,
     io::{self, BufRead},
     process,
-    time::SystemTime,
 };
 
 use dapt::{query::Query, Dapt};
@@ -22,8 +21,6 @@ fn main() {
         }
     };
 
-    let mut n = SystemTime::now();
-
     let stdin = io::stdin();
     let lines = stdin.lock().lines();
 
@@ -33,17 +30,13 @@ fn main() {
             Err(_) => continue,
         };
 
-        let _ = q.process(&d);
-        if SystemTime::now().duration_since(n).unwrap().as_secs() > 1 {
-            let res = match q.collect() {
-                Ok(res) => res,
-                Err(_) => continue,
-            };
+        let res = match q.process_and_collect(&d) {
+            Ok(res) => res,
+            Err(_) => continue,
+        };
 
-            for r in res.iter() {
-                println!("{}", serde_json::to_string(&r).unwrap());
-            }
-            n = SystemTime::now();
+        for r in res.iter().flatten() {
+            println!("{}", serde_json::to_string(&r).unwrap());
         }
     }
 
