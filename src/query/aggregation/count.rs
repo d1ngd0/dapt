@@ -60,8 +60,10 @@ impl Aggregation for CountAggregation {
         }
     }
 
-    fn result<'a>(&'a self) -> Option<Any<'a>> {
-        Some(Any::USize(self.count))
+    fn result<'a>(&'a mut self) -> Option<Any<'a>> {
+        let s = Some(Any::USize(self.count));
+        self.count = 0;
+        s
     }
 
     fn composable(&self, path: &Path) -> (Vec<Column>, Box<dyn Aggregation>) {

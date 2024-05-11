@@ -42,7 +42,7 @@ macro_rules! math_aggregation {
                 self.right.process(d);
             }
 
-            fn result<'a>(&'a self) -> Option<Any<'a>> {
+            fn result<'a>(&'a mut self) -> Option<Any<'a>> {
                 let left: f64 = Number::try_from(self.left.result()?).ok()?.into();
                 let right: f64 = Number::try_from(self.right.result()?).ok()?.into();
 

@@ -28,7 +28,7 @@ pub trait Aggregation: Display + DynClone {
     // result returns the aggregation result, were applicable, we should
     // return NotFound, which is handled by select by not adding the column
     // to the final result.
-    fn result<'a>(&'a self) -> Option<Any<'a>>;
+    fn result<'a>(&'a mut self) -> Option<Any<'a>>;
 
     // composable will break an aggregation into two seperate aggregations,
     // The first aggregation will be the composable one. Meaning it can be run

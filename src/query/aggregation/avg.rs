@@ -55,7 +55,7 @@ impl Aggregation for AvgAggregation {
         };
     }
 
-    fn result<'a>(&'a self) -> Option<Any<'a>> {
+    fn result<'a>(&'a mut self) -> Option<Any<'a>> {
         let (sum, count) = self.sum_count?;
         Some(Any::F64(sum / count as f64))
     }

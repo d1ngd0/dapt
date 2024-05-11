@@ -146,10 +146,10 @@ impl GroupBy {
         group.process(d);
     }
 
-    fn collect(&self, having: &HavingClause) -> QueryResult<Vec<Dapt>> {
+    fn collect(&mut self, having: &HavingClause) -> QueryResult<Vec<Dapt>> {
         let mut results = Vec::new();
 
-        for group in self.groups.values() {
+        for group in self.groups.values_mut() {
             let d = group.collect()?;
             match having.filter(&d) {
                 Ok(true) => results.push(d),
@@ -369,7 +369,7 @@ impl Query {
         Ok(())
     }
 
-    pub fn collect(&self) -> QueryResult<Vec<Dapt>> {
+    pub fn collect(&mut self) -> QueryResult<Vec<Dapt>> {
         let mut set = self.group.collect(&self.having)?;
         self.order.sort(&mut set);
 
@@ -459,9 +459,9 @@ impl SelectClause {
         }
     }
 
-    pub fn collect(&self) -> QueryResult<Dapt> {
+    pub fn collect(&mut self) -> QueryResult<Dapt> {
         let mut d = DaptBuilder::new();
-        for col in self.fields.iter() {
+        for col in self.fields.iter_mut() {
             if let Some(value) = col.agg.result() {
                 d.set_any_path(&col.alias, value)?;
             }

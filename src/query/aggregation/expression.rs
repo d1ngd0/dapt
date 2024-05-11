@@ -53,7 +53,7 @@ impl Aggregation for ExpressionAggregation {
         };
     }
 
-    fn result<'a>(&'a self) -> Option<Any<'a>> {
+    fn result<'a>(&'a mut self) -> Option<Any<'a>> {
         Some(self.value.as_ref()?.into())
     }
 

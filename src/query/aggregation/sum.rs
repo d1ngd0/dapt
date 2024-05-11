@@ -65,7 +65,7 @@ impl Aggregation for SumAggregation {
         }
     }
 
-    fn result<'a>(&'a self) -> Option<Any<'a>> {
+    fn result<'a>(&'a mut self) -> Option<Any<'a>> {
         Some(self.sum.into())
     }
 
