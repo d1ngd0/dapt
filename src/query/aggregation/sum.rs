@@ -14,7 +14,7 @@ use super::Aggregation;
 #[derive(Clone)]
 pub struct SumAggregation {
     value: Box<dyn Expression>,
-    sum: Number,
+    sum: Option<Number>,
 }
 
 impl SumAggregation {
@@ -24,17 +24,11 @@ impl SumAggregation {
         let value = parser.parse_expression()?;
         parser.consume_token(FN_CLOSE)?;
 
-        Ok(SumAggregation {
-            value,
-            sum: Number::ISize(0),
-        })
+        Ok(SumAggregation { value, sum: None })
     }
 
     pub fn new(value: Box<dyn Expression>) -> Self {
-        Self {
-            value,
-            sum: Number::ISize(0),
-        }
+        Self { value, sum: None }
     }
 }
 
@@ -53,20 +47,38 @@ impl Aggregation for SumAggregation {
             Any::Array(a) => {
                 for v in a {
                     match Number::try_from(v) {
-                        Ok(n) => self.sum = self.sum + n,
+                        Ok(n) => {
+                            self.sum = Some(match self.sum {
+                                Some(s) => s + n,
+                                None => Number::ISize(0) + n,
+                            });
+                        }
                         Err(_) => (),
                     }
                 }
             }
             _ => match Number::try_from(val) {
-                Ok(n) => self.sum = self.sum + n,
+                Ok(n) => {
+                    self.sum = Some(match self.sum {
+                        Some(s) => s + n,
+                        None => Number::ISize(0) + n,
+                    });
+                }
                 Err(_) => (),
             },
         }
     }
 
     fn result<'a>(&'a mut self) -> Option<Any<'a>> {
-        Some(self.sum.into())
+        let v = match self.sum {
+            Some(s) => {
+                self.sum = None;
+                Some(Any::from(s))
+            }
+            None => None,
+        };
+        self.sum = None;
+        v
     }
 
     fn composable(&self, path: &Path) -> (Vec<Column>, Box<dyn Aggregation>) {
@@ -76,7 +88,7 @@ impl Aggregation for SumAggregation {
         // create the aggregation
         let combine = Box::new(SumAggregation {
             value: Box::new(PathExpression::from(path.clone())),
-            sum: Number::ISize(0),
+            sum: Some(Number::ISize(0)),
         });
 
         (vec![composite], combine)

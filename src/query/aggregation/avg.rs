@@ -57,7 +57,9 @@ impl Aggregation for AvgAggregation {
 
     fn result<'a>(&'a mut self) -> Option<Any<'a>> {
         let (sum, count) = self.sum_count?;
-        Some(Any::F64(sum / count as f64))
+        let v = Some(Any::F64(sum / count as f64));
+        self.sum_count = None;
+        v
     }
 
     fn composable(&self, path: &Path) -> (Vec<Column>, Box<dyn Aggregation>) {
