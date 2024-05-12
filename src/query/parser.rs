@@ -669,7 +669,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn consumed(&self) -> History {
-        History::new(self.lex.consumed())
+        History::new(self.lex.consumed(), self.lex.future())
     }
 
     pub fn parse_query(&mut self) -> QueryResult<Query> {
@@ -730,6 +730,14 @@ impl<'a> Parser<'a> {
                 duration: Duration::from_secs(0),
             },
         };
+
+        let leftovers = self.lex.future().trim();
+        if !leftovers.is_empty() {
+            return Err(Error::with_history(
+                &format!("unexpected trailing content: {}", leftovers),
+                self.consumed(),
+            ));
+        }
 
         Ok(Query {
             from,
@@ -1187,7 +1195,7 @@ impl<'a> Parser<'a> {
         match self.lex.token() {
             Some(tok) if tok.to_uppercase() == expected => Ok(()),
             Some(tok) => Err(Error::with_history(
-                &format!("expected {} but got {}", expected, tok),
+                &format!("expected \"{}\" but got \"{}\"", expected, tok),
                 self.consumed(),
             )),
             None => Err(Error::unexpected_eof(self.consumed())),
@@ -1829,6 +1837,29 @@ mod tests {
         assert_display_query!(
             r#"SELECT sum("a") as "sum", count("a") as "count", "b" WHERE "a" > 1 GROUP BY "b" ORDER BY "b""#,
             "SELECT SUM(\"a\") AS \"sum\", COUNT(\"a\") AS \"count\", \"b\" AS \"b\" WHERE \"a\" > 1 HAVING true GROUP BY \"b\" ORDER BY \"b\""
+        );
+    }
+
+    macro_rules! assert_query_error {
+        ($query:expr, $error:expr) => {
+            let mut parser = Parser::from($query);
+            let err = match parser.parse_query() {
+                Ok(_) => panic!("expected error"),
+                Err(e) => format!("{}", e),
+            };
+            assert_eq!(err, $error);
+        };
+    }
+
+    #[test]
+    fn test_qeury_error() {
+        assert_query_error!(
+            r#"something"#,
+            "Invalid query: [ something ] expected \"SELECT\" but got \"something\""
+        );
+        assert_query_error!(
+            r#"SELECT "a" WHERE "chicken" == 'a' WHERE "turkey" > 19 "#,
+            "Invalid query: [ SELECT \"a\" WHERE \"chicken\" == 'a' █ WHERE \"turkey\" > 19  ]: unexpected trailing content: WHERE \"turkey\" > 19"
         );
     }
 }

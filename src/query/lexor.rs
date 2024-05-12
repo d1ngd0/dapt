@@ -43,6 +43,12 @@ impl<'a> Lexer<'a> {
         &self.path[..self.head]
     }
 
+    // future returns the contents which have not yet been consumed.
+    // upcoming consumes any whitespace that hasn't been consumed yet.
+    pub fn future(&self) -> &'a str {
+        &self.path[self.head..]
+    }
+
     // token returns the next token in the path. When there are no more tokens
     // it returns None. All tokens returns are references to the original string
     // meaning all escape characters are still present.
