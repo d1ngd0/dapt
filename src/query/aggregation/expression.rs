@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
 use crate::{
-    binary::OwnedAny,
     query::{
         expression::PathExpression,
         parser::{Column, Parser},
@@ -17,7 +16,10 @@ use super::{
 #[derive(Clone)]
 pub struct ExpressionAggregation {
     expr: Box<dyn Expression>,
-    value: Option<OwnedAny>,
+    value: Option<Any<'static>>,
+    // this is static? no, it's not. We just have make sure not to use
+    // actual reference values in here since we can force an any
+    // into holding the value
 }
 
 impl ExpressionAggregation {
@@ -47,16 +49,16 @@ impl Aggregation for ExpressionAggregation {
 
         self.value = match self.expr.evaluate(d) {
             // the value here will likely outlive the dapt packet
-            // it came from, so we clone.
-            Some(v) => Some(v.into()),
+            // it came from, so we force_owned, which will make sure
+            // we use no values with enums.
+            Some(v) => Some(v.force_owned()),
             None => return,
         };
     }
 
     fn result<'a>(&'a mut self) -> Option<Any<'a>> {
         let v = self.value.take()?;
-        Some(Any::from(v)) // This actually doesn't work for maps and bytes, because we drop the
-                           // data TODO: we need to fix this at some point
+        Some(Any::from(v))
     }
 
     // since this is essentially first, we can just return the first value

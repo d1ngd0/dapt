@@ -124,7 +124,7 @@ impl Dapt {
             }
         }
 
-        return true;
+        true
     }
 
     // get will return the value of the first pointer, if

@@ -379,37 +379,12 @@ pub enum Any<'a> {
     Str(&'a str),
     String(String),
     Bytes(&'a [u8]),
+    VecBytes(Vec<u8>),
     Char(char),
     Bool(bool),
     Array(Vec<Any<'a>>),
     Map(HashMap<&'a str, Any<'a>>),
-    Null,
-}
-
-// while this works I kinda hate it, is this idomatic or is there a better way to do
-// this?
-#[derive(Debug, Clone)]
-pub enum OwnedAny {
-    USize(usize),
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    U64(u64),
-    U128(u128),
-    ISize(isize),
-    I8(i8),
-    I16(i16),
-    I32(i32),
-    I64(i64),
-    I128(i128),
-    F32(f32),
-    F64(f64),
-    Str(String),
-    Bytes(Vec<u8>),
-    Char(char),
-    Bool(bool),
-    Array(Vec<OwnedAny>),
-    Map(HashMap<String, OwnedAny>),
+    StringMap(HashMap<String, Any<'a>>),
     Null,
 }
 
@@ -460,121 +435,6 @@ impl PartialOrd for Any<'_> {
     }
 }
 
-impl From<Any<'_>> for OwnedAny {
-    fn from(value: Any) -> Self {
-        match value {
-            Any::USize(val) => OwnedAny::USize(val),
-            Any::U8(val) => OwnedAny::U8(val),
-            Any::U16(val) => OwnedAny::U16(val),
-            Any::U32(val) => OwnedAny::U32(val),
-            Any::U64(val) => OwnedAny::U64(val),
-            Any::U128(val) => OwnedAny::U128(val),
-            Any::ISize(val) => OwnedAny::ISize(val),
-            Any::I8(val) => OwnedAny::I8(val),
-            Any::I16(val) => OwnedAny::I16(val),
-            Any::I32(val) => OwnedAny::I32(val),
-            Any::I64(val) => OwnedAny::I64(val),
-            Any::I128(val) => OwnedAny::I128(val),
-            Any::F32(val) => OwnedAny::F32(val),
-            Any::F64(val) => OwnedAny::F64(val),
-            Any::Str(val) => OwnedAny::Str(val.to_string()),
-            Any::String(val) => OwnedAny::Str(val),
-            Any::Bytes(val) => OwnedAny::Bytes(val.to_vec()),
-            Any::Char(val) => OwnedAny::Char(val),
-            Any::Bool(val) => OwnedAny::Bool(val),
-            Any::Array(val) => {
-                let mut items = Vec::with_capacity(val.len());
-                for item in val {
-                    items.push(OwnedAny::from(item));
-                }
-                OwnedAny::Array(items)
-            }
-            Any::Map(val) => {
-                let mut items = HashMap::with_capacity(val.len());
-                for (key, value) in val {
-                    items.insert(key.to_string(), OwnedAny::from(value));
-                }
-                OwnedAny::Map(items)
-            }
-            Any::Null => OwnedAny::Null,
-        }
-    }
-}
-
-impl From<OwnedAny> for Any<'_> {
-    fn from(value: OwnedAny) -> Self {
-        match value {
-            OwnedAny::USize(val) => Any::USize(val),
-            OwnedAny::U8(val) => Any::U8(val),
-            OwnedAny::U16(val) => Any::U16(val),
-            OwnedAny::U32(val) => Any::U32(val),
-            OwnedAny::U64(val) => Any::U64(val),
-            OwnedAny::U128(val) => Any::U128(val),
-            OwnedAny::ISize(val) => Any::ISize(val),
-            OwnedAny::I8(val) => Any::I8(val),
-            OwnedAny::I16(val) => Any::I16(val),
-            OwnedAny::I32(val) => Any::I32(val),
-            OwnedAny::I64(val) => Any::I64(val),
-            OwnedAny::I128(val) => Any::I128(val),
-            OwnedAny::F32(val) => Any::F32(val),
-            OwnedAny::F64(val) => Any::F64(val),
-            OwnedAny::Str(val) => Any::String(val.to_string()),
-            OwnedAny::Bytes(val) => Any::Null, // this is gross, fix it
-            OwnedAny::Char(val) => Any::Char(val),
-            OwnedAny::Bool(val) => Any::Bool(val),
-            OwnedAny::Array(val) => {
-                let mut items = Vec::with_capacity(val.len());
-                for item in val {
-                    items.push(Any::from(item));
-                }
-                Any::Array(items)
-            }
-            OwnedAny::Map(val) => Any::Null, // this is gross, fix it
-            OwnedAny::Null => Any::Null,
-        }
-    }
-}
-
-impl<'a> From<&'a OwnedAny> for Any<'a> {
-    fn from(value: &'a OwnedAny) -> Self {
-        match value {
-            OwnedAny::USize(val) => Any::USize(*val),
-            OwnedAny::U8(val) => Any::U8(*val),
-            OwnedAny::U16(val) => Any::U16(*val),
-            OwnedAny::U32(val) => Any::U32(*val),
-            OwnedAny::U64(val) => Any::U64(*val),
-            OwnedAny::U128(val) => Any::U128(*val),
-            OwnedAny::ISize(val) => Any::ISize(*val),
-            OwnedAny::I8(val) => Any::I8(*val),
-            OwnedAny::I16(val) => Any::I16(*val),
-            OwnedAny::I32(val) => Any::I32(*val),
-            OwnedAny::I64(val) => Any::I64(*val),
-            OwnedAny::I128(val) => Any::I128(*val),
-            OwnedAny::F32(val) => Any::F32(*val),
-            OwnedAny::F64(val) => Any::F64(*val),
-            OwnedAny::Str(val) => Any::Str(val),
-            OwnedAny::Bytes(val) => Any::Bytes(val),
-            OwnedAny::Char(val) => Any::Char(*val),
-            OwnedAny::Bool(val) => Any::Bool(*val),
-            OwnedAny::Array(val) => {
-                let mut items = Vec::with_capacity(val.len());
-                for item in val {
-                    items.push(Any::from(item));
-                }
-                Any::Array(items)
-            }
-            OwnedAny::Map(val) => {
-                let mut items = HashMap::with_capacity(val.len());
-                for (key, value) in val {
-                    items.insert(&key[..], Any::from(value));
-                }
-                Any::Map(items)
-            }
-            OwnedAny::Null => Any::Null,
-        }
-    }
-}
-
 impl<'a> Any<'a> {
     pub fn new(b: &'a Binary, token: BToken) -> Option<Any<'a>> {
         match token.get_type(b) {
@@ -621,6 +481,57 @@ impl<'a> Any<'a> {
             _ => None,
         }
     }
+
+    // force the underlying any to be static. Everything in here is now
+    // owned, so there are no static values.
+    pub fn force_owned(self) -> Any<'static> {
+        match self {
+            Any::Str(val) => Any::String(val.to_string()),
+            Any::Bytes(val) => Any::VecBytes(val.to_vec()),
+            Any::Array(val) => {
+                let mut items = Vec::with_capacity(val.len());
+                for item in val {
+                    items.push(item.force_owned());
+                }
+                Any::Array(items)
+            }
+            Any::Map(val) => {
+                let mut items = HashMap::with_capacity(val.len());
+                for (key, value) in val {
+                    items.insert(key.to_string(), value.force_owned());
+                }
+                Any::StringMap(items)
+            }
+            Any::String(val) => Any::String(val),
+            Any::VecBytes(val) => Any::VecBytes(val),
+            Any::StringMap(val) => {
+                let mut items = HashMap::with_capacity(val.len());
+                for (key, value) in val {
+                    items.insert(key, value.force_owned());
+                }
+                Any::StringMap(items)
+            }
+            // technically I should just be able to return val, but rust
+            // needs to make sure the lifetimes match up.
+            Any::USize(val) => Any::USize(val),
+            Any::U8(val) => Any::U8(val),
+            Any::U16(val) => Any::U16(val),
+            Any::U32(val) => Any::U32(val),
+            Any::U64(val) => Any::U64(val),
+            Any::U128(val) => Any::U128(val),
+            Any::ISize(val) => Any::ISize(val),
+            Any::I8(val) => Any::I8(val),
+            Any::I16(val) => Any::I16(val),
+            Any::I32(val) => Any::I32(val),
+            Any::I64(val) => Any::I64(val),
+            Any::I128(val) => Any::I128(val),
+            Any::F32(val) => Any::F32(val),
+            Any::F64(val) => Any::F64(val),
+            Any::Char(val) => Any::Char(val),
+            Any::Bool(val) => Any::Bool(val),
+            Any::Null => Any::Null,
+        }
+    }
 }
 
 impl From<Any<'_>> for String {
@@ -643,6 +554,7 @@ impl From<Any<'_>> for String {
             Any::F32(val) => val.to_string(),
             Any::F64(val) => val.to_string(),
             Any::Bytes(val) => Base64Encoder.encode(val),
+            Any::VecBytes(val) => Base64Encoder.encode(&val),
             Any::Char(val) => val.to_string(),
             Any::Bool(val) => val.to_string(),
             Any::Array(val) => {
@@ -660,6 +572,20 @@ impl From<Any<'_>> for String {
                 result
             }
             Any::Map(val) => {
+                let mut result = String::new();
+                let mut first = true;
+                for (key, value) in val {
+                    if first {
+                        first = false;
+                    } else {
+                        result.push_str(", ");
+                    }
+
+                    result.push_str(&format!("{}: {}", key, String::from(value)));
+                }
+                result
+            }
+            Any::StringMap(val) => {
                 let mut result = String::new();
                 let mut first = true;
                 for (key, value) in val {
@@ -1080,6 +1006,16 @@ impl PartialEq<&[u8]> for Any<'_> {
     }
 }
 
+impl PartialEq<Vec<u8>> for Any<'_> {
+    fn eq(&self, other: &Vec<u8>) -> bool {
+        match self {
+            Any::VecBytes(a) => a == other,
+            Any::Bytes(a) => *a == other.as_slice(),
+            _ => false,
+        }
+    }
+}
+
 impl PartialEq<char> for Any<'_> {
     fn eq(&self, other: &char) -> bool {
         match self {
@@ -1129,24 +1065,77 @@ impl PartialEq<Vec<Any<'_>>> for Any<'_> {
 
 impl PartialEq<HashMap<&str, Any<'_>>> for Any<'_> {
     fn eq(&self, other: &HashMap<&str, Any<'_>>) -> bool {
-        let a = match self {
-            Any::Map(a) => a,
-            _ => return false,
-        };
-
-        if a.len() != other.len() {
-            return false;
-        }
-
-        for (key, val) in a.iter() {
-            if let Some(other_val) = other.get(key) {
-                if val != other_val {
+        match self {
+            Any::Map(a) => {
+                if a.len() != other.len() {
                     return false;
                 }
-            }
-        }
 
-        true
+                for (key, val) in a.iter() {
+                    if let Some(other_val) = other.get(key) {
+                        if val != other_val {
+                            return false;
+                        }
+                    }
+                }
+
+                true
+            }
+            Any::StringMap(a) => {
+                if a.len() != other.len() {
+                    return false;
+                }
+
+                for (key, val) in a.iter() {
+                    if let Some(other_val) = other.get(key.as_str()) {
+                        if val != other_val {
+                            return false;
+                        }
+                    }
+                }
+
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<HashMap<String, Any<'_>>> for Any<'_> {
+    fn eq(&self, other: &HashMap<String, Any<'_>>) -> bool {
+        match self {
+            Any::Map(a) => {
+                if a.len() != other.len() {
+                    return false;
+                }
+
+                for (key, val) in a.iter() {
+                    if let Some(other_val) = other.get(*key) {
+                        if val != other_val {
+                            return false;
+                        }
+                    }
+                }
+
+                true
+            }
+            Any::StringMap(a) => {
+                if a.len() != other.len() {
+                    return false;
+                }
+
+                for (key, val) in a.iter() {
+                    if let Some(other_val) = other.get(key.as_str()) {
+                        if val != other_val {
+                            return false;
+                        }
+                    }
+                }
+
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -1170,12 +1159,14 @@ impl PartialEq for Any<'_> {
             Any::Str(a) => other == a,
             Any::String(a) => other == a,
             Any::Bytes(a) => other == a,
+            Any::VecBytes(a) => other == a,
             Any::Char(a) => other == a,
             Any::Bool(a) => other == a,
             // Arrays are equal if they have the same contents
             // they don't have to be in the same order
             Any::Array(a) => other == a,
             Any::Map(a) => other == a,
+            Any::StringMap(a) => other == a,
             Any::Null => match other {
                 Any::Null => true,
                 _ => false,

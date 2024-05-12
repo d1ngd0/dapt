@@ -149,6 +149,7 @@ impl Binary {
             Any::Bool(val) => self.add(parent, val),
             Any::Char(val) => self.add(parent, val),
             Any::Bytes(val) => self.add(parent, val),
+            Any::VecBytes(val) => self.add(parent, val),
             Any::Null => self.add(parent, ()),
             Any::Array(val) => {
                 let mut children: Vec<BReference> = Vec::with_capacity(val.len());
@@ -164,6 +165,17 @@ impl Binary {
                 for (k, v) in val {
                     let child = self.add_any(parent, v);
                     let (bref, _token) = BKeyValue::new(parent, child, k, self);
+                    children.push(bref);
+                }
+
+                let (bref, _) = BMap::new(parent, &children[..], self);
+                bref
+            }
+            Any::StringMap(val) => {
+                let mut children: Vec<BReference> = Vec::with_capacity(val.len());
+                for (k, v) in val {
+                    let child = self.add_any(parent, v);
+                    let (bref, _token) = BKeyValue::new(parent, child, k.as_str(), self);
                     children.push(bref);
                 }
 

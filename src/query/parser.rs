@@ -1239,6 +1239,7 @@ impl Hasher {
             Any::I8(i) => self.hash_combine(city_hash_64(&i.to_be_bytes())),
             Any::Char(c) => self.hash_combine(city_hash_64(&((*c) as u64).to_ne_bytes())),
             Any::Bytes(b) => self.hash_combine(city_hash_64(*b)),
+            Any::VecBytes(b) => self.hash_combine(city_hash_64(b.as_slice())),
             Any::F64(f) => self.hash_combine(city_hash_64(&f.to_ne_bytes())),
             Any::F32(f) => self.hash_combine(city_hash_64(&f.to_ne_bytes())),
             Any::Str(s) => self.hash_combine(city_hash_64(s.as_bytes())),
@@ -1249,6 +1250,12 @@ impl Hasher {
                 }
             }
             Any::Map(m) => {
+                for (k, v) in m.iter() {
+                    self.hash_combine(city_hash_64(k.as_bytes()));
+                    self.hash(v);
+                }
+            }
+            Any::StringMap(m) => {
                 for (k, v) in m.iter() {
                     self.hash_combine(city_hash_64(k.as_bytes()));
                     self.hash(v);
