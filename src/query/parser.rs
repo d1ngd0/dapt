@@ -153,7 +153,11 @@ impl GroupBy {
         for group in self.groups.values_mut() {
             let d = group.collect()?;
             match having.filter(&d) {
-                Ok(true) => results.push(d),
+                Ok(true) => {
+                    if !d.empty() {
+                        results.push(d)
+                    }
+                }
                 Ok(false) => (),
                 // TODO: handle the error here.
                 Err(_) => (),

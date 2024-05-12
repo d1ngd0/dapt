@@ -116,6 +116,17 @@ impl Dapt {
         self
     }
 
+    pub fn empty(&self) -> bool {
+        for ptr in self.ptrs.iter() {
+            match ptr.val_at(&self.b) {
+                Some(_) => return false,
+                None => (),
+            }
+        }
+
+        return true;
+    }
+
     // get will return the value of the first pointer, if
     // there is one. When calling this function you must know
     // the type of value within the dapt packet
