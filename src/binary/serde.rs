@@ -216,7 +216,11 @@ impl Serialize for SerializeBReference<'_> {
     where
         S: serde::ser::Serializer,
     {
-        let token = self.bookmark.val_at(&self.bin).unwrap();
+        let token = match self.bookmark.val_at(&self.bin) {
+            Some(t) => t,
+            None => return serializer.serialize_unit(),
+        };
+
         match token.get_type(&self.bin) {
             TYPE_I8 => serializer.serialize_i8(self.get::<i8>()),
             TYPE_I16 => serializer.serialize_i16(self.get::<i16>()),

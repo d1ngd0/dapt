@@ -300,3 +300,14 @@ impl DaptBuilder {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::DaptBuilder;
+
+    #[test]
+    fn test_empty_build() {
+        let d = DaptBuilder::new().build();
+        assert_eq!("null", serde_json::to_string(&d).unwrap());
+    }
+}
