@@ -1,5 +1,6 @@
 mod avg;
 mod count;
+mod cumulative_sum;
 mod expression;
 mod math;
 mod sum;
@@ -11,13 +12,12 @@ use crate::{Any, Dapt, Path};
 
 use super::parser::Column;
 
-pub use avg::AvgAggregation;
-pub use count::CountAggregation;
-pub use expression::ExpressionAggregation;
-pub use math::{
-    AddAggregation, DivideAggregation, ModulusAggregation, MultiplyAggregation, SubtractAggregation,
-};
-pub use sum::SumAggregation;
+pub use avg::*;
+pub use count::*;
+pub use cumulative_sum::*;
+pub use expression::*;
+pub use math::*;
+pub use sum::*;
 
 // an aggregation taks multiple dapt packets through process
 // and returns the defined aggregation result as an Any type.
