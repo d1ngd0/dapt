@@ -16,7 +16,7 @@ use crate::{Any, Dapt};
 // Expression is a trait that takes in a dapt packet and returns an
 // optional value. This value can be Any type, which is what a dapt packet
 // can return.
-pub trait Expression: Display + DynClone {
+pub trait Expression: Display + DynClone + Send + Sync {
     fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>>;
 }
 dyn_clone::clone_trait_object!(Expression);

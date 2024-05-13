@@ -16,7 +16,7 @@ use crate::query::parser::FN_EXISTS;
 // Condition is a trait that defines a where clause condition, such as
 // `age = 10` or `name != "John"` though higher level objects implement
 // this trait as well.
-pub trait Condition: Display + DynClone {
+pub trait Condition: Display + DynClone + Send + Sync {
     fn evaluate(&self, d: &Dapt) -> QueryResult<bool>;
 }
 dyn_clone::clone_trait_object!(Condition);

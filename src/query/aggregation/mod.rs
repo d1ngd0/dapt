@@ -21,7 +21,7 @@ pub use sum::SumAggregation;
 
 // an aggregation taks multiple dapt packets through process
 // and returns the defined aggregation result as an Any type.
-pub trait Aggregation: Display + DynClone {
+pub trait Aggregation: Display + DynClone + Send + Sync {
     // process can be called multiple times
     fn process<'a>(&'a mut self, d: &Dapt);
 
