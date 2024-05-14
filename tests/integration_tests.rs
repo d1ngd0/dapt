@@ -1,5 +1,5 @@
 use dapt::{
-    query::{SelectClause, WhereClause},
+    query::{Query, SelectClause, WhereClause},
     Dapt, Path,
 };
 
@@ -179,5 +179,55 @@ fn test_select() {
         r#"{"COUNT()":2,"c_count":1,"sum":6}"#,
         r#"{"a":1,"b":"hello","c":[1,2,3]}"#,
         r#"{"a":1,"b":"hello"}"#
+    );
+}
+
+macro_rules! assert_query {
+    ( $expr:expr, $expected:expr, $($source:expr),+) => {
+        let mut query = Query::new($expr).unwrap();
+        let sources = vec![$(serde_json::from_str($source).unwrap()),+];
+        for d in sources {
+            let _ = query.process(&d);
+        }
+        let result = query.collect().unwrap();
+        assert_eq!(serde_json::to_string(&result).unwrap(), $expected);
+    };
+}
+
+#[test]
+fn test_query() {
+    // Simple
+    assert_query!(
+        r#" SELECT "a" as "data.first""#,
+        r#"[{"data":{"first":1}}]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"simple"}"#,
+        r#"{"a":1,"b":"hello","test":"simple"}"#
+    );
+
+    // Filter
+    assert_query!(
+        r#" SELECT "a" as "data.first" WHERE "b" == 'bye' "#,
+        r#"[{"data":{"first":2}}]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"filter"}"#,
+        r#"{"a":1,"b":"hello","test":"filter"}"#,
+        r#"{"a":2,"b":"bye","test":"filter"}"#
+    );
+
+    // Group and order
+    assert_query!(
+        r#" SELECT "a" as "data.first", "b" GROUP BY "b" ORDER BY "b" DESC"#,
+        r#"[{"data":{"first":1},"b":"hello"},{"data":{"first":2},"b":"bye"}]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"group_and_order"}"#,
+        r#"{"a":1,"b":"hello","test":"group_and_order"}"#,
+        r#"{"a":2,"b":"bye","test":"group_and_order"}"#
+    );
+
+    // having
+    assert_query!(
+        r#" SELECT sum("a") as "sum", "b" HAVING "sum" > 5 GROUP BY "b" ORDER BY "b" "#,
+        r#"[{"sum":6,"b":"hello"}]"#,
+        r#"{"a":5,"b":"hello","test":"having"}"#,
+        r#"{"a":1,"b":"hello","test":"having"}"#,
+        r#"{"a":2,"b":"bye","test":"having"}"#
     );
 }

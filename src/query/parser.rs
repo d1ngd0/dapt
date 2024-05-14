@@ -222,8 +222,8 @@ impl OrderBy {
 
         ds.sort_by(|a, b| {
             for order_column in self.fields.iter() {
-                let a = order_column.field.evaluate(a).unwrap();
-                let b = order_column.field.evaluate(b).unwrap();
+                let a = order_column.field.evaluate(a).unwrap_or(Any::Null);
+                let b = order_column.field.evaluate(b).unwrap_or(Any::Null);
 
                 let cmp = match order_column.direction {
                     OrderDirection::Ascending => a.partial_cmp(&b),

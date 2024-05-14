@@ -406,16 +406,18 @@ impl PartialOrd for Any<'_> {
             Any::I128(a) => Number::I128(*a).partial_cmp(&Number::try_from(other).ok()?),
             Any::F32(a) => Number::F32(*a).partial_cmp(&Number::try_from(other).ok()?),
             Any::F64(a) => Number::F64(*a).partial_cmp(&Number::try_from(other).ok()?),
-            Any::Str(a) => a.partial_cmp(match other {
-                Any::Str(b) => b,
+            Any::Str(a) => (*a).partial_cmp(match other {
+                Any::Str(b) => *b,
+                Any::String(b) => &b[..],
                 _ => return None,
             }),
             Any::Null => match other {
                 Any::Null => Some(Ordering::Equal),
                 _ => Some(Ordering::Less),
             },
-            Any::Bytes(a) => a.partial_cmp(match other {
-                Any::Bytes(b) => b,
+            Any::Bytes(a) => (*a).partial_cmp(match other {
+                Any::Bytes(b) => *b,
+                Any::VecBytes(b) => &b[..],
                 _ => return None,
             }),
             Any::Char(a) => a.partial_cmp(match other {
