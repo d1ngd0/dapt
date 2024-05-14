@@ -274,4 +274,13 @@ fn test_query() {
         r#"{"a":1,"b":"hello","test":"simple"}"#,
         r#"{"a":2,"b":"bye","test":"having"}"#
     );
+
+    // group non existant
+    assert_query!(
+        r#" SELECT sum("a") as "sum" GROUP BY "nope" "#,
+        r#"[{"sum":4}]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"simple"}"#,
+        r#"{"a":1,"b":"hello","test":"simple"}"#,
+        r#"{"a":2,"b":"bye","test":"having"}"#
+    );
 }
