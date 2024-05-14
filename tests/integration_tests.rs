@@ -213,6 +213,15 @@ fn test_query() {
         r#"{"a":2,"b":"bye","test":"filter"}"#
     );
 
+    // expression Filter
+    assert_query!(
+        r#" SELECT "a" as "data.first" WHERE true "#,
+        r#"[{"data":{"first":1}}]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"expression_filter"}"#,
+        r#"{"a":1,"b":"hello","test":"expression_filter"}"#,
+        r#"{"a":2,"b":"bye","test":"expression_filter"}"#
+    );
+
     // Group and order
     assert_query!(
         r#" SELECT "a" as "data.first", "b" GROUP BY "b" ORDER BY "b" DESC"#,
@@ -228,6 +237,41 @@ fn test_query() {
         r#"[{"sum":6,"b":"hello"}]"#,
         r#"{"a":5,"b":"hello","test":"having"}"#,
         r#"{"a":1,"b":"hello","test":"having"}"#,
+        r#"{"a":2,"b":"bye","test":"having"}"#
+    );
+
+    // Sum non existant (empty dapt packets don't get added)
+    assert_query!(
+        r#" SELECT sum("nope") as "sum""#,
+        r#"[]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"simple"}"#,
+        r#"{"a":1,"b":"hello","test":"simple"}"#
+    );
+
+    // Sum non existant with b (empty dapt packets don't get added)
+    assert_query!(
+        r#" SELECT sum("nope") as "sum", "b" GROUP BY "b" ORDER BY "b" DESC"#,
+        r#"[{"b":"hello"},{"b":"bye"}]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"simple"}"#,
+        r#"{"a":1,"b":"hello","test":"simple"}"#,
+        r#"{"a":2,"b":"bye","test":"having"}"#
+    );
+
+    // Where non existant
+    assert_query!(
+        r#" SELECT sum("a") as "sum" WHERE "nope" == 'hey' "#,
+        r#"[]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"simple"}"#,
+        r#"{"a":1,"b":"hello","test":"simple"}"#,
+        r#"{"a":2,"b":"bye","test":"having"}"#
+    );
+
+    // having non existant
+    assert_query!(
+        r#" SELECT sum("a") as "sum" HAVING "nope" > 45 "#,
+        r#"[]"#,
+        r#"{"a":1,"b":"hello","c":[1,2,3],"test":"simple"}"#,
+        r#"{"a":1,"b":"hello","test":"simple"}"#,
         r#"{"a":2,"b":"bye","test":"having"}"#
     );
 }
