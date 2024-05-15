@@ -14,16 +14,13 @@ pub const AGGREGATION_CUMULATIVE_SUM: &str = "CUMULATIVE_SUM";
 
 #[derive(Clone)]
 pub struct CumulativeSum {
-    sum: Number,
+    sum: Option<Number>,
     agg: Box<dyn Aggregation>,
 }
 
 impl CumulativeSum {
     pub fn new(agg: Box<dyn Aggregation>) -> Self {
-        Self {
-            sum: Number::ISize(0),
-            agg,
-        }
+        Self { sum: None, agg }
     }
 
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
@@ -32,10 +29,7 @@ impl CumulativeSum {
         let agg = parser.parse_aggregation()?;
         parser.consume_token(FN_CLOSE)?;
 
-        Ok(CumulativeSum {
-            sum: Number::ISize(0),
-            agg,
-        })
+        Ok(CumulativeSum { sum: None, agg })
     }
 }
 
@@ -52,8 +46,11 @@ impl Aggregation for CumulativeSum {
 
     fn result<'a>(&'a mut self) -> Option<crate::Any<'a>> {
         let result: Number = self.agg.result()?.try_into().ok()?;
-        self.sum = self.sum + result;
-        Some(self.sum.into())
+        self.sum = match self.sum {
+            Some(s) => Some(s + result),
+            None => Some(Number::ISize(0) + result),
+        };
+        Some(self.sum?.into())
     }
 
     // As CumulativeSum takes an aggregation, we take the childs composite columns

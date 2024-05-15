@@ -891,6 +891,8 @@ impl<'a> Parser<'a> {
             AGGREGATION_COUNT => Ok(Box::new(CountAggregation::from_parser(self)?)),
             AGGREGATION_AVG => Ok(Box::new(AvgAggregation::from_parser(self)?)),
             AGGREGATION_CUMULATIVE_SUM => Ok(Box::new(CumulativeSum::from_parser(self)?)),
+            AGGREGATION_MIN => Ok(Box::new(MinAggregation::from_parser(self)?)),
+            AGGREGATION_MAX => Ok(Box::new(MaxAggregation::from_parser(self)?)),
             FN_ADD => Ok(Box::new(AddAggregation::from_parser(self)?)),
             FN_MINUS => Ok(Box::new(SubtractAggregation::from_parser(self)?)),
             FN_MULTIPLY => Ok(Box::new(MultiplyAggregation::from_parser(self)?)),

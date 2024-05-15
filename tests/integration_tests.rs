@@ -215,7 +215,7 @@ fn test_query() {
 
     // expression Filter
     assert_query!(
-        r#" SELECT sum("a") as "sum", "b" WHERE true GROUP BY "b""#,
+        r#" SELECT sum("a") as "sum", "b" WHERE true GROUP BY "b" ORDER BY "b" DESC "#,
         r#"[{"sum":2,"b":"hello"},{"sum":2,"b":"bye"}]"#,
         r#"{"a":1,"b":"hello","c":[1,2,3],"test":"expression_filter"}"#,
         r#"{"a":1,"b":"hello","test":"expression_filter"}"#,

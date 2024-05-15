@@ -3,6 +3,8 @@ mod count;
 mod cumulative_sum;
 mod expression;
 mod math;
+mod max;
+mod min;
 mod sum;
 
 use dyn_clone::DynClone;
@@ -17,6 +19,8 @@ pub use count::*;
 pub use cumulative_sum::*;
 pub use expression::*;
 pub use math::*;
+pub use max::*;
+pub use min::*;
 pub use sum::*;
 
 // an aggregation taks multiple dapt packets through process
@@ -97,6 +101,24 @@ mod test {
         assert_aggregation!(
             r#"10"#,
             Any::USize(10),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        // max
+        assert_aggregation!(
+            r#"MAX("a")"#,
+            Any::USize(3),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        // min
+        assert_aggregation!(
+            r#"MIN("a")"#,
+            Any::USize(1),
             r#"{"a": 1}"#,
             r#"{"a": 2}"#,
             r#"{"a": 3}"#
