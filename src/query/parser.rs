@@ -992,15 +992,14 @@ impl<'a> Parser<'a> {
 
         let left = self.parse_expression()?;
 
-        // check for EOF (which could be expected this time) or an AND or OR
-        match self.lex.peak() {
-            None | Some(OR) | Some(AND) => return Ok(Box::new(DefaultExpressCondition::new(left))),
-            _ => (),
+        let tok = match self.lex.peak() {
+            None => return Ok(Box::new(DefaultExpressCondition::new(left))),
+            Some(t) => t,
         };
 
-        let tok = self.lex.token().unwrap();
         match tok.to_uppercase().as_str() {
             EQUAL | EQUAL_DOUBLE => {
+                let _ = self.token(); // consume the token
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
@@ -1015,6 +1014,7 @@ impl<'a> Parser<'a> {
                 Ok(Box::new(EqualsCondition::new(left, right)))
             }
             NOT_EQUAL => {
+                let _ = self.token(); // consume the token
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
@@ -1029,6 +1029,7 @@ impl<'a> Parser<'a> {
                 Ok(Box::new(NotEqualsCondition::new(left, right)))
             }
             GREATER_THAN => {
+                let _ = self.token(); // consume the token
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
@@ -1043,6 +1044,7 @@ impl<'a> Parser<'a> {
                 Ok(Box::new(GreaterThanCondition::new(left, right)))
             }
             GREATER_THAN_EQUAL => {
+                let _ = self.token(); // consume the token
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
@@ -1058,6 +1060,7 @@ impl<'a> Parser<'a> {
                 Ok(Box::new(GreaterThanEqualCondition::new(left, right)))
             }
             LESS_THAN => {
+                let _ = self.token(); // consume the token
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
@@ -1072,6 +1075,7 @@ impl<'a> Parser<'a> {
                 Ok(Box::new(LessThanCondition::new(left, right)))
             }
             LESS_THAN_EQUAL => {
+                let _ = self.token(); // consume the token
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
@@ -1086,6 +1090,7 @@ impl<'a> Parser<'a> {
                 Ok(Box::new(LessThanEqualCondition::new(left, right)))
             }
             IN => {
+                let _ = self.token(); // consume the token
                 let right = match self.parse_expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
@@ -1099,10 +1104,8 @@ impl<'a> Parser<'a> {
 
                 Ok(Box::new(InCondition::new(left, right)))
             }
-            other => Err(Error::with_history(
-                &format!("expected comparison operator, AND or OR got \"{}\"", other),
-                self.consumed(),
-            )),
+            // if this doesn't match any of these, we can assume this is a unary operation
+            _ => Ok(Box::new(DefaultExpressCondition::new(left))),
         }
     }
 
