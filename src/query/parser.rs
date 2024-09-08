@@ -524,6 +524,19 @@ impl SelectClause {
 
         (composable, combine)
     }
+
+    // alias_of returns a clone of the underlying expression that the
+    // expression passed in is aliasing. It returns nothing if the
+    // expressions provided does not match a selected column
+    pub fn alias_of(&self, expr: &Box<dyn Expression>) -> QueryResult<Box<dyn Expression>> {
+        for col in self.fields.iter() {
+            if col.alias.to_string() == expr.to_string() {
+                return col.agg.expression();
+            }
+        }
+
+        Err(Error::NotFound)
+    }
 }
 
 impl Display for SelectClause {
@@ -787,9 +800,19 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         let groups = HashMap::new();
 
-        fields.push(self.parse_expression()?);
-        while self.continue_if(FROM_SEP) {
-            fields.push(self.parse_expression()?);
+        loop {
+            let alias = self.parse_expression()?;
+            let expr = match select.alias_of(&alias) {
+                Ok(expr) => Ok(expr), // the alias was of an expression in the select clause
+                Err(Error::NotFound) => Ok(alias), // the alias is an expression, not in the select
+                Err(err) => Err(err), // there was a real error
+            }?;
+
+            fields.push(expr);
+
+            if !self.continue_if(FROM_SEP) {
+                break;
+            }
         }
 
         Ok(GroupBy {
@@ -1822,8 +1845,8 @@ mod tests {
         );
 
         assert_composite_query!(
-            "select sum(\"a\") as \"sum\", count() as \"count\", \"b\" WHERE \"a\" > 1 GROUP BY \"b\" ORDER BY \"sum\" DESC LIMIT 2",
-            r#"[{"sum":13,"count":3,"b":"what"},{"sum":6,"count":1,"b":"goodbye"}]"#,
+            "select sum(\"a\") as \"sum\", count() as \"count\", \"b\" as \"banana\" WHERE \"a\" > 1 GROUP BY \"banana\" ORDER BY \"sum\" DESC LIMIT 2",
+            r#"[{"sum":13,"count":3,"banana":"what"},{"sum":6,"count":1,"banana":"goodbye"}]"#,
             r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"},{"a":6, "b": "goodbye"}]"#,
             r#"[{"a": 3, "b":"hello"},{"a":5, "b": "what"},{"a": 3, "b":"what"},{"a":5, "b": "what"}]"#
         );

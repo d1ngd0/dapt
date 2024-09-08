@@ -68,6 +68,11 @@ impl Aggregation for ExpressionAggregation {
         let combine = Box::new(ExpressionAggregation::from(path.clone()));
         (vec![composable], combine)
     }
+
+    // expression should return a clone of the expression.
+    fn expression(&self) -> QueryResult<Box<dyn Expression>> {
+        Ok(self.expr.clone())
+    }
 }
 
 impl Display for ExpressionAggregation {
