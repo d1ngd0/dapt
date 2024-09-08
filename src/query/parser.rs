@@ -32,7 +32,7 @@ pub const ORDER: &str = "ORDER";
 pub const BY: &str = "BY";
 pub const ORDER_ASC: &str = "ASC";
 pub const ORDER_DESC: &str = "DESC";
-pub const TOP: &str = "TOP";
+pub const LIMIT: &str = "LIMIT";
 pub const INTERVAL: &str = "INTERVAL";
 pub const SUB_CONDITION: &str = "(";
 pub const SUB_CONDITION_END: &str = ")";
@@ -297,16 +297,16 @@ impl Display for OrderDirection {
     }
 }
 
-// TOP is used at the very end, when used with Order By it can be used to get
-// a top subset of the values returned by the query.
+// Limit is used at the very end, when used with Order By it can be used to get
+// a limited subset of the values returned by the query.
 #[derive(Clone)]
-struct Top {
+struct Limit {
     count: usize,
 }
 
-impl Display for Top {
+impl Display for Limit {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "TOP {}", self.count)
+        write!(f, "{} {}", LIMIT, self.count)
     }
 }
 
@@ -368,7 +368,7 @@ impl Interval {
 }
 
 // Query is the parsed representation of a query. It holds a from, where, having
-// group by (which houses the select clause), order by and top. The only thing required
+// group by (which houses the select clause), order by and limit. The only thing required
 // to parse a query is the `SELECT` portion of the query. The rest is optional.
 // if not specified a No Op where, having, group by, order by are created.
 #[derive(Clone)]
@@ -378,7 +378,7 @@ pub struct Query {
     having: HavingClause,
     group: GroupBy,
     order: OrderBy,
-    top: Option<Top>,
+    limit: Option<Limit>,
     interval: Interval,
 }
 
@@ -399,8 +399,8 @@ impl Query {
         let mut set = self.group.collect(&self.having)?;
         self.order.sort(&mut set);
 
-        if let Some(top) = &self.top {
-            set.truncate(top.count);
+        if let Some(limit) = &self.limit {
+            set.truncate(limit.count);
         }
 
         Ok(set)
@@ -425,7 +425,7 @@ impl Query {
     pub fn composite(&self) -> (Query, Query) {
         let (composable, combine) = self.group.composable();
         (
-            // having, order by and top can only be done at the combine step
+            // having, order by and limit can only be done at the combine step
             Query {
                 from: self.from.clone(),
                 wherre: self.wherre.clone(),
@@ -434,7 +434,7 @@ impl Query {
                 },
                 group: composable,
                 order: OrderBy { fields: Vec::new() },
-                top: None,
+                limit: None,
                 interval: self.interval.clone(),
             },
             // where can only be done at the composable step
@@ -446,7 +446,7 @@ impl Query {
                 having: self.having.clone(),
                 group: combine,
                 order: self.order.clone(),
-                top: self.top.clone(),
+                limit: self.limit.clone(),
                 interval: self.interval.clone(),
             },
         )
@@ -467,8 +467,8 @@ impl Display for Query {
             self.wherre, self.having, self.group, self.order
         )?;
 
-        if self.top.is_some() {
-            write!(f, " {}", self.top.as_ref().unwrap())?;
+        if self.limit.is_some() {
+            write!(f, " {}", self.limit.as_ref().unwrap())?;
         }
 
         Ok(())
@@ -718,8 +718,8 @@ impl<'a> Parser<'a> {
             _ => OrderBy { fields: Vec::new() },
         };
 
-        let top = match self.lex.peak() {
-            Some(v) if v.to_uppercase() == TOP => Some(self.parse_top()?),
+        let limit = match self.lex.peak() {
+            Some(v) if v.to_uppercase() == LIMIT => Some(self.parse_limit()?),
             _ => None,
         };
 
@@ -745,7 +745,7 @@ impl<'a> Parser<'a> {
             having,
             group,
             order,
-            top,
+            limit,
             interval,
         })
     }
@@ -760,10 +760,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_top(&mut self) -> QueryResult<Top> {
-        self.consume_token(TOP)?;
+    fn parse_limit(&mut self) -> QueryResult<Limit> {
+        self.consume_token(LIMIT)?;
         let count = self.parse_positive_number()?;
-        Ok(Top { count })
+        Ok(Limit { count })
     }
 
     pub fn continue_if(&mut self, tok: &str) -> bool {
@@ -1649,7 +1649,7 @@ mod tests {
         );
 
         assert_select!(
-            r#" select sum("a") as "sum", "b" GROUP BY "b" ORDER BY "sum" DESC TOP 1"#,
+            r#" select sum("a") as "sum", "b" GROUP BY "b" ORDER BY "sum" DESC LIMIT 1"#,
             r#"[{"sum":95,"b":"hi"}]"#,
             // values
             r#"{"a": 1, "b": "hello"}"#,
@@ -1822,7 +1822,7 @@ mod tests {
         );
 
         assert_composite_query!(
-            "select sum(\"a\") as \"sum\", count() as \"count\", \"b\" WHERE \"a\" > 1 GROUP BY \"b\" ORDER BY \"sum\" DESC TOP 2",
+            "select sum(\"a\") as \"sum\", count() as \"count\", \"b\" WHERE \"a\" > 1 GROUP BY \"b\" ORDER BY \"sum\" DESC LIMIT 2",
             r#"[{"sum":13,"count":3,"b":"what"},{"sum":6,"count":1,"b":"goodbye"}]"#,
             r#"[{"a": 1, "b": "hello"},{"a": 2, "b": "hello"},{"a":6, "b": "goodbye"}]"#,
             r#"[{"a": 3, "b":"hello"},{"a":5, "b": "what"},{"a": 3, "b":"what"},{"a":5, "b": "what"}]"#
