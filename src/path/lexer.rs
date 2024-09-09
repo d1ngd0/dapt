@@ -48,14 +48,14 @@ impl<'a> Lexer<'a> {
     }
 
     // peak returns the next token without moving the head forward
-    // pub fn peak(&mut self) -> Option<&'a str> {
-    //     // keep track of "escape_token" state before the call so we can
-    //     // set it back to the original state after the call
-    //     let escaped = self.escape_token;
-    //     let (tok, _) = self.full_next()?;
-    //     self.escape_token = escaped;
-    //     Some(tok)
-    // }
+    pub fn peak(&mut self) -> Option<&'a str> {
+        // keep track of "escape_token" state before the call so we can
+        // set it back to the original state after the call
+        let escaped = self.escape_token;
+        let (tok, _) = self.full_next()?;
+        self.escape_token = escaped;
+        Some(tok)
+    }
 
     // full_nest returns the next token, and stiches together tokens like >=
     //
