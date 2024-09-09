@@ -24,11 +24,10 @@ const MULTI_OPERATOR_END: &str = ")";
 const MULTI_OPERATOR_SEP: &str = "|";
 const REGEXP_OPERATOR: &str = "/";
 const STRING_WRAP: &str = "\"";
+const ESCAPE: &str = "\\";
 
 #[derive(Debug)]
 pub enum ParseError {
-    EOF,
-    EOS,
     UnexpectedEOF,
     MalformedPath(String),
     InvalidIndex(String),
@@ -37,10 +36,8 @@ pub enum ParseError {
 impl ParseError {
     pub fn to_string(&self) -> String {
         match self {
-            ParseError::EOF => "EOF".to_string(),
             // used to signal the end of a section in operators like
             // first or multi.
-            ParseError::EOS => "End Of Section".to_string(),
             ParseError::UnexpectedEOF => "Unexpected EOF".to_string(),
             ParseError::MalformedPath(s) => format!("Malformed path: {}", s),
             ParseError::InvalidIndex(s) => format!("Invalid index: {}", s),
@@ -238,18 +235,7 @@ impl TryFrom<&str> for Path {
 
     fn try_from(path: &str) -> Result<Self, Self::Error> {
         let mut p = Parser::from(path);
-        let mut nodes = vec![];
-
-        loop {
-            let node = p.parse(Node::new_field_literal);
-            match node {
-                Err(ParseError::EOF) => break,
-                Err(err) => Err(err)?,
-                Ok(n) => nodes.push(n),
-            };
-        }
-
-        Ok(Path(nodes))
+        p.parse()
     }
 }
 
@@ -260,44 +246,36 @@ impl From<Vec<Node>> for Path {
 }
 
 impl Parser<'_> {
-    fn parse<F>(&mut self, ext: F) -> ParseResult<Node>
-    where
-        F: Fn(&str) -> ParseResult<Node>,
-    {
-        let token = self.lex.token();
-        if let None = token {
-            return Err(ParseError::EOF);
-        }
-        let token = token.unwrap();
+    fn parse_operator(&mut self) -> ParseResult<Node> {
+        let token = self.lex.peak().ok_or(ParseError::UnexpectedEOF)?;
 
         match token {
-            // if we hit a nesting operator we should just try again
-            NESTING_OPERATOR => self.parse(Node::new_field_literal),
-            STRING_WRAP => self.parse_wrapped_field_literal(),
+            STRING_WRAP => self.parse_field_literal(),
             INDEX_OPERATOR => self.parse_index(),
             WILDCARD_OPERATOR => Ok(Node::Wildcard(Wildcard)),
             RECURSIVE_OPERATOR => self.parse_recursive(),
             MULTI_OPERATOR => self.parse_multi(),
             FIRST_OPERATOR => self.parse_first(),
             REGEXP_OPERATOR => self.parse_regexp(),
-            _ => ext(token),
+            MULTI_OPERATOR_SEP|MULTI_OPERATOR_END|FIRST_OPERATOR_SEP|FIRST_OPERATOR_END|NESTING_OPERATOR => Err(ParseError::MalformedPath(format!("{} is a keyword, if it is part of a keyname you must wrap it with {} or escape it with {}", token, STRING_WRAP, ESCAPE))),
+            _ => self.parse_field_literal(),
         }
     }
 
-    fn parse_wrapped_field_literal(&mut self) -> ParseResult<Node> {
-        let node = match self.lex.token() {
-            Some(tok) => FieldLiteral::from_escaped(tok),
-            None => return Err(ParseError::UnexpectedEOF),
-        };
-
-        match self.lex.token() {
-            Some(STRING_WRAP) => Ok(Node::FieldLiteral(node)),
-            Some(token) => Err(ParseError::MalformedPath(format!(
-                "unexpected token: {}, expected string wrap",
-                token
-            ))),
-            None => Err(ParseError::UnexpectedEOF),
+    fn parse_field_literal(&mut self) -> ParseResult<Node> {
+        let is_wrapped = self.is_next(STRING_WRAP);
+        if is_wrapped {
+            self.consume();
         }
+
+        let node = self.lex.token().ok_or(ParseError::UnexpectedEOF)?;
+        let node = FieldLiteral::from_escaped(node);
+
+        if is_wrapped {
+            self.consume_next(STRING_WRAP)?;
+        }
+
+        Ok(Node::FieldLiteral(node))
     }
 
     fn parse_regexp(&mut self) -> ParseResult<Node> {
@@ -316,76 +294,73 @@ impl Parser<'_> {
         }
     }
 
+    // parse_multi will parse the string representation of a multi
+    // operator
+    // example ("me"|"another"."me"|"a"."third"."me")
     fn parse_multi(&mut self) -> ParseResult<Node> {
         let mut paths = vec![];
 
         loop {
-            let (path, cont) = self.parse_path(|token| match token {
-                MULTI_OPERATOR_SEP => Err(ParseError::EOS),
-                MULTI_OPERATOR_END => Err(ParseError::EOF),
-                MULTI_OPERATOR => Err(ParseError::MalformedPath("unexpected (".to_string())),
-                FIRST_OPERATOR => Err(ParseError::MalformedPath("unexpected {".to_string())),
-                FIRST_OPERATOR_END => Err(ParseError::MalformedPath("unexpected }".to_string())),
-                FIRST_OPERATOR_SEP => Err(ParseError::MalformedPath("unexpected ,".to_string())),
-                _ => Node::new_field_literal(token),
-            })?;
+            match self.parse() {
+                Ok(path) => paths.push(path),
+                Err(err) => return Err(err),
+            };
 
-            paths.push(path);
-
-            if !cont {
+            if !self.is_next(MULTI_OPERATOR_SEP) {
                 break;
             }
+            self.consume()
         }
+
+        // ensure the ending operator is supplied
+        self.consume_next(MULTI_OPERATOR_END)?;
 
         Ok(Node::Multi(Multi::new(paths)))
     }
 
+    // parse_first will parse the string representation of a first
+    // operator
+    // example: {"path"."one","path"."two","third".path}
     fn parse_first(&mut self) -> ParseResult<Node> {
         let mut paths = vec![];
 
         loop {
-            let (path, cont) = self.parse_path(|token| match token {
-                FIRST_OPERATOR_SEP => Err(ParseError::EOS),
-                FIRST_OPERATOR_END => Err(ParseError::EOF),
-                FIRST_OPERATOR => Err(ParseError::MalformedPath("unexpected {".to_string())),
-                MULTI_OPERATOR => Err(ParseError::MalformedPath("unexpected (".to_string())),
-                MULTI_OPERATOR_END => Err(ParseError::MalformedPath("unexpected )".to_string())),
-                MULTI_OPERATOR_SEP => Err(ParseError::MalformedPath("unexpected |".to_string())),
-                _ => Node::new_field_literal(token),
-            })?;
+            match self.parse() {
+                Ok(path) => paths.push(path),
+                Err(err) => return Err(err),
+            };
 
-            paths.push(path);
-
-            if !cont {
+            if !self.is_next(FIRST_OPERATOR_SEP) {
                 break;
             }
+            self.consume();
         }
+
+        // ensure the ending operator is supplied
+        self.consume_next(FIRST_OPERATOR_END)?;
 
         Ok(Node::First(First::new(paths)))
     }
 
-    // parse_path is a helper function that expects you to handle returning
+    // parse is a helper function that expects you to handle returning
     // EOS when done parsing a path, and EOF when done parsing a list of
     // paths. This is used for first, and multi. If you should continue the
     // function will return true, if you should stop because EOF was returned
     // from the parser it will return false
-    fn parse_path<F>(&mut self, ext: F) -> ParseResult<(Path, bool)>
-    where
-        F: Fn(&str) -> ParseResult<Node>,
-    {
+    pub fn parse(&mut self) -> ParseResult<Path> {
         let mut nodes = vec![];
-        let mut cont = true;
         loop {
-            let node = self.parse(&ext);
-            match node {
-                Err(ParseError::EOS) => break,
-                Err(ParseError::EOF) => {
-                    cont = false;
-                    break;
-                }
-                Err(err) => Err(err)?,
+            match self.parse_operator() {
                 Ok(n) => nodes.push(n),
+                Err(err) => return Err(err),
             };
+
+            // check for a ., if we see one we know there is more
+            // to parse.
+            if !self.is_next(NESTING_OPERATOR) {
+                break;
+            }
+            self.consume()
         }
 
         if nodes.len() == 0 {
@@ -394,16 +369,12 @@ impl Parser<'_> {
             ));
         }
 
-        Ok((Path::from_nodes(nodes), cont))
+        Ok(Path::from_nodes(nodes))
     }
 
     fn parse_recursive(&mut self) -> ParseResult<Node> {
-        let node = self.parse(Node::new_field_literal);
-        if let Err(ParseError::EOF) = node {
-            return Err(ParseError::UnexpectedEOF);
-        }
-
-        Ok(Node::Recursive(Recursive::new(node?)))
+        let node = self.parse_operator()?;
+        Ok(Node::Recursive(Recursive::new(node)))
     }
 
     fn parse_index(&mut self) -> ParseResult<Node> {
@@ -432,33 +403,67 @@ impl Parser<'_> {
             None => Err(ParseError::UnexpectedEOF),
         }
     }
+
+    // is_next will check to see if the next value matches the supplied
+    // token. This is case sensitive.
+    fn is_next(&mut self, tok: &str) -> bool {
+        let seen = match self.lex.peak() {
+            Some(seen) => seen,
+            None => return false,
+        };
+
+        tok == seen
+    }
+
+    // consume_next will return an error if the next token consumed is not the
+    // one supplied to the parser. This function is case sensitive.
+    fn consume_next(&mut self, tok: &str) -> ParseResult<()> {
+        let seen = self.lex.token().ok_or(ParseError::UnexpectedEOF)?;
+        if seen != tok {
+            return Err(ParseError::MalformedPath(format!(
+                "expected {} but got {}",
+                tok, seen
+            )));
+        }
+
+        Ok(())
+    }
+
+    // consume just consumes the next token, no questions asked.
+    fn consume(&mut self) {
+        let _ = self.lex.token();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cmp::min;
 
     macro_rules! test_parse {
         ($path:expr, $($args:tt),*) => {
+            // parse the path
             let mut p = Parser::from($path);
-            let mut nodes = vec![];
+            let path = p.parse()?;
+
+            // define the vectors we expect
             let expected: Vec<&str> = vec![$($args),*];
 
-            let mut node = p.parse(Node::new_field_literal);
-            while let Ok(n) = node {
-                nodes.push(n.to_string());
-                node = p.parse(Node::new_field_literal);
-            }
+            assert_eq!(path.0.len(), expected.len());
 
-            assert_eq!(nodes, expected);
+            for x in 0..min(path.0.len(), expected.len()) {
+                assert_eq!(path.0[x].to_string(), expected[x].to_string())
+            }
         };
     }
 
     #[test]
-    fn test_parse() {
+    fn test_parse() -> ParseResult<()> {
         test_parse!("Im.am a.fish", "Im", "\"am a\"", "fish");
         test_parse!("a.b.c.d.e", "a", "b", "c", "d", "e");
         test_parse!("a.\"b.a\".c", "a", "\"b.a\"", "c");
         test_parse!("a.b\\.a.c", "a", "\"b.a\"", "c");
+        test_parse!("{a,\"a\".\"b\"}.c", "{a,\"a\".\"b\"}", "c");
+        Ok(())
     }
 }
