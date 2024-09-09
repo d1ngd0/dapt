@@ -279,25 +279,21 @@ impl Parser<'_> {
     }
 
     fn parse_regexp(&mut self) -> ParseResult<Node> {
-        let reg = match self.lex.token() {
-            Some(reg) => Regexp::new(reg),
-            None => return Err(ParseError::UnexpectedEOF),
-        };
+        self.consume_next(REGEXP_OPERATOR)?;
 
-        match self.lex.token() {
-            Some(REGEXP_OPERATOR) => Ok(Node::Regexp(reg)),
-            Some(token) => Err(ParseError::MalformedPath(format!(
-                "unexpected token: {}, expected regex operator",
-                token
-            ))),
-            None => Err(ParseError::UnexpectedEOF),
-        }
+        let reg = self.lex.token().ok_or(ParseError::UnexpectedEOF)?;
+        let reg = Regexp::new(reg);
+
+        self.consume_next(REGEXP_OPERATOR)?;
+        Ok(Node::Regexp(reg))
     }
 
     // parse_multi will parse the string representation of a multi
     // operator
     // example ("me"|"another"."me"|"a"."third"."me")
     fn parse_multi(&mut self) -> ParseResult<Node> {
+        self.consume_next(MULTI_OPERATOR)?;
+
         let mut paths = vec![];
 
         loop {
@@ -322,6 +318,8 @@ impl Parser<'_> {
     // operator
     // example: {"path"."one","path"."two","third".path}
     fn parse_first(&mut self) -> ParseResult<Node> {
+        self.consume_next(FIRST_OPERATOR)?;
+
         let mut paths = vec![];
 
         loop {
@@ -373,35 +371,32 @@ impl Parser<'_> {
     }
 
     fn parse_recursive(&mut self) -> ParseResult<Node> {
+        self.consume_next(RECURSIVE_OPERATOR)?;
+
+        if self.is_next(NESTING_OPERATOR) {
+            self.consume()
+        }
+
         let node = self.parse_operator()?;
+
         Ok(Node::Recursive(Recursive::new(node)))
     }
 
     fn parse_index(&mut self) -> ParseResult<Node> {
-        let token = self.lex.token();
-        match token {
-            Some(INDEX_OPERATOR_END) => Ok(Node::Array(Array::new(None))),
-            Some(index) => {
-                let end_index = self.lex.token();
-                if let None = end_index {
-                    return Err(ParseError::UnexpectedEOF);
-                }
+        self.consume_next(INDEX_OPERATOR)?;
 
-                if end_index.unwrap() != INDEX_OPERATOR_END {
-                    return Err(ParseError::MalformedPath(
-                        "missing closing bracket for array".to_string(),
-                    ));
-                }
-
-                let index = match index.parse::<usize>() {
-                    Ok(index) => index,
-                    Err(_) => return Err(ParseError::InvalidIndex(index.to_string())),
-                };
-
-                Ok(Node::Array(Array::new(Some(index))))
-            }
-            None => Err(ParseError::UnexpectedEOF),
+        if self.is_next(INDEX_OPERATOR_END) {
+            self.consume();
+            return Ok(Node::Array(Array::new(None)));
         }
+
+        let token = self.lex.token().ok_or(ParseError::UnexpectedEOF)?;
+        let index = token
+            .parse::<usize>()
+            .map_err(|_| ParseError::InvalidIndex(token.to_string()))?;
+        self.consume_next(INDEX_OPERATOR_END)?;
+
+        Ok(Node::Array(Array::new(Some(index))))
     }
 
     // is_next will check to see if the next value matches the supplied
@@ -463,7 +458,9 @@ mod tests {
         test_parse!("a.b.c.d.e", "a", "b", "c", "d", "e");
         test_parse!("a.\"b.a\".c", "a", "\"b.a\"", "c");
         test_parse!("a.b\\.a.c", "a", "\"b.a\"", "c");
-        test_parse!("{a,\"a\".\"b\"}.c", "{a,\"a\".\"b\"}", "c");
+        test_parse!("{a,\"a\".\"b\"}.c", "{a,a.b}", "c");
+        test_parse!("(a|\"a\".\"b\").c", "(a|a.b)", "c");
+        test_parse!("*.c", "*", "c");
         Ok(())
     }
 }
