@@ -18,6 +18,7 @@ const TOKEN_MINUS: char = '-';
 const TOKEN_DIVIDE: char = '/';
 const TOKEN_MULTIPLY: char = '*';
 const TOKEN_MODULUS: char = '%';
+const TOKEN_TICK: char = '`';
 
 pub struct Lexer<'a> {
     path: &'a str,
@@ -47,6 +48,11 @@ impl<'a> Lexer<'a> {
     // upcoming consumes any whitespace that hasn't been consumed yet.
     pub fn future(&self) -> &'a str {
         &self.path[self.head..]
+    }
+
+    // advance_head moves the lexor head forward by the delta
+    pub fn advance_head(&mut self, delta: usize) {
+        self.head += delta
     }
 
     // token returns the next token in the path. When there are no more tokens
@@ -156,7 +162,8 @@ impl<'a> Lexer<'a> {
                 | TOKEN_MINUS
                 | TOKEN_DIVIDE
                 | TOKEN_MULTIPLY
-                | TOKEN_MODULUS => {
+                | TOKEN_MODULUS
+                | TOKEN_TICK => {
                     // if the previous token was an escape token, we just want to add this to the
                     // existing token
                     if escape_next || escape_all {

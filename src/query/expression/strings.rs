@@ -28,10 +28,10 @@ macro_rules! simple_string_fn {
 
         impl $name {
             pub fn from_parser<'a>(p: &mut Parser<'a>) -> QueryResult<$name> {
-                p.consume_token($fn)?;
-                p.consume_token(FN_OPEN)?;
+                p.consume_next($fn)?;
+                p.consume_next(FN_OPEN)?;
                 let value = p.parse_expression()?;
-                p.consume_token(FN_CLOSE)?;
+                p.consume_next(FN_CLOSE)?;
 
                 Ok($name { value })
             }
@@ -130,8 +130,8 @@ pub struct StringConcat {
 
 impl StringConcat {
     pub fn from_parser<'a>(p: &mut Parser<'a>) -> QueryResult<StringConcat> {
-        p.consume_token(FN_CONCAT)?;
-        p.consume_token(FN_OPEN)?;
+        p.consume_next(FN_CONCAT)?;
+        p.consume_next(FN_OPEN)?;
 
         let mut exprs = Vec::new();
 
@@ -140,7 +140,7 @@ impl StringConcat {
             exprs.push(p.parse_expression()?);
         }
 
-        p.consume_token(FN_CLOSE)?;
+        p.consume_next(FN_CLOSE)?;
 
         Ok(StringConcat { exprs })
     }
@@ -188,14 +188,14 @@ pub struct StringSplit {
 
 impl StringSplit {
     pub fn from_parser<'a>(p: &mut Parser<'a>) -> QueryResult<StringSplit> {
-        p.consume_token(FN_SPLIT)?;
-        p.consume_token(FN_OPEN)?;
+        p.consume_next(FN_SPLIT)?;
+        p.consume_next(FN_OPEN)?;
 
         let value = p.parse_expression()?;
-        p.consume_token(FN_SEP)?;
+        p.consume_next(FN_SEP)?;
         let delimiter = p.parse_string(STRING_WRAP)?;
 
-        p.consume_token(FN_CLOSE)?;
+        p.consume_next(FN_CLOSE)?;
 
         Ok(StringSplit { value, delimiter })
     }

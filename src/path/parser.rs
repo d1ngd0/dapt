@@ -86,6 +86,13 @@ impl Node {
     pub fn new_field_literal(field: &str) -> ParseResult<Node> {
         Ok(Node::FieldLiteral(FieldLiteral::from_escaped(field)))
     }
+
+    pub fn is_settable(&self) -> bool {
+        match self {
+            Node::FieldLiteral(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Node {
@@ -185,6 +192,17 @@ impl Path {
 
     pub fn append_key(&mut self, key: &str) {
         self.0.push(Node::FieldLiteral(FieldLiteral::new(key)));
+    }
+
+    // is_settable tells us if the path defined can be set or not.
+    pub fn is_settable(&self) -> bool {
+        for n in self.0.iter() {
+            if !n.is_settable() {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
 
@@ -354,6 +372,9 @@ impl Parser<'_> {
     // function will return true, if you should stop because EOF was returned
     // from the parser it will return false
     pub fn parse(&mut self) -> ParseResult<Path> {
+        // consume any whitespace in the beginning.
+        self.lex.consume_whitespace();
+
         let mut nodes = vec![];
         loop {
             match self.parse_operator() {
@@ -440,6 +461,11 @@ impl Parser<'_> {
     fn consume(&mut self) {
         let _ = self.lex.token();
     }
+
+    // chars_consumed returns the number of characters the parser consumed.
+    pub fn chars_consumed(&self) -> usize {
+        self.lex.chars_consumed()
+    }
 }
 
 #[cfg(test)]
@@ -466,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_parse() -> ParseResult<()> {
-        test_parse!("Im.am a.fish", "Im", "\"am a\"", "fish");
+        test_parse!("Im.\"am a\".fish", "Im", "\"am a\"", "fish");
         test_parse!("a.b.c.d.e", "a", "b", "c", "d", "e");
         test_parse!("a.\"b.a\".c", "a", "\"b.a\"", "c");
         test_parse!("a.b\\.a.c", "a", "\"b.a\"", "c");

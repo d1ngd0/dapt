@@ -142,13 +142,12 @@ fn test_filter() {
 
     let d: Dapt = serde_json::from_str(data).unwrap();
 
-    let f = WhereClause::new("WHERE \"~.deepest\" == 'hello'").unwrap();
+    let f = WhereClause::new("WHERE ~.deepest == 'hello'").unwrap();
     assert_eq!(f.filter(&d).unwrap(), true);
 
     // c[1] == 2
-    let f =
-        WhereClause::new("WHERE add(\"c[1]\", 4) > 5 AND \"d.*.deeper\" == {\"deepest\": 'hello'}")
-            .unwrap();
+    let f = WhereClause::new("WHERE add(c[1], 4) > 5 AND d.*.deeper == {\"deepest\": 'hello'}")
+        .unwrap();
     assert_eq!(f.filter(&d).unwrap(), true);
 }
 
@@ -168,7 +167,7 @@ macro_rules! assert_select {
 fn test_select() {
     // transform and aggregation
     assert_select!(
-        r#" SELECT "a" as "data.first", "b" as "data.second", sum("c") as "sum" "#,
+        r#" SELECT "a" as data.first, "b" as data.second, sum("c") as "sum" "#,
         r#"{"data":{"first":1,"second":"hello"},"sum":6}"#,
         r#"{"a":1,"b":"hello","c":[1,2,3]}"#,
         r#"{"a":1,"b":"hello"}"#
@@ -198,7 +197,7 @@ macro_rules! assert_query {
 fn test_query() {
     // Simple
     assert_query!(
-        r#" SELECT "a" as "data.first""#,
+        r#" SELECT "a" as data.first"#,
         r#"[{"data":{"first":1}}]"#,
         r#"{"a":1,"b":"hello","c":[1,2,3],"test":"simple"}"#,
         r#"{"a":1,"b":"hello","test":"simple"}"#
@@ -206,7 +205,7 @@ fn test_query() {
 
     // Filter
     assert_query!(
-        r#" SELECT "a" as "data.first" WHERE "b" == 'bye' "#,
+        r#" SELECT "a" as data.first WHERE "b" == 'bye' "#,
         r#"[{"data":{"first":2}}]"#,
         r#"{"a":1,"b":"hello","c":[1,2,3],"test":"filter"}"#,
         r#"{"a":1,"b":"hello","test":"filter"}"#,
@@ -224,7 +223,7 @@ fn test_query() {
 
     // Group and order
     assert_query!(
-        r#" SELECT "a" as "data.first", "b" GROUP BY "b" ORDER BY "b" DESC"#,
+        r#" SELECT "a" as data.first, "b" GROUP BY "b" ORDER BY "b" DESC"#,
         r#"[{"data":{"first":1},"b":"hello"},{"data":{"first":2},"b":"bye"}]"#,
         r#"{"a":1,"b":"hello","c":[1,2,3],"test":"group_and_order"}"#,
         r#"{"a":1,"b":"hello","test":"group_and_order"}"#,

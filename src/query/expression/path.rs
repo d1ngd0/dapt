@@ -1,10 +1,7 @@
 use std::{fmt::Display, ops::Deref};
 
 use crate::{
-    query::{
-        parser::{Parser, KEY_WRAP},
-        Error, QueryResult,
-    },
+    query::{parser::Parser, QueryResult},
     Any, Dapt, Path,
 };
 
@@ -25,30 +22,10 @@ impl From<Path> for PathExpression {
 }
 
 impl PathExpression {
+    // Create a path from a parser
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
-        parser.consume_token(KEY_WRAP)?;
-
-        let key = match parser.token() {
-            Some(tok) => tok,
-            None => return Err(Error::unexpected_eof(parser.consumed())),
-        };
-
-        // This a bit of a hack so that we can use the \ escaping character in
-        // a path. If you have a " in your path you are going to have to do terrible
-        // things
-        let path = Path::try_from(key.replace("\\\"", "\"").as_str())
-            .map_err(|e| Error::with_history(&e.to_string(), parser.consumed()))?;
-
-        // consume the final " token, and return. If we get a different token
-        // or hit EOF we can return an error
-        match parser.token() {
-            Some(KEY_WRAP) => Ok(PathExpression { path }),
-            Some(tok) => Err(Error::with_history(
-                &format!("expected {KEY_WRAP} but got {tok}"),
-                parser.consumed(),
-            )),
-            None => Err(Error::unexpected_eof(parser.consumed())),
-        }
+        let path = parser.parse_key()?;
+        Ok(PathExpression::from(path))
     }
 
     pub fn new(path: Path) -> Self {

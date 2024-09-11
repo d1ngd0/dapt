@@ -3,8 +3,8 @@ use std::{collections::HashMap, fmt::Display, ops::Deref};
 use crate::{
     query::{
         parser::{
-            Parser, ARRAY_CHILD_SEP, ARRAY_WRAP, ARRAY_WRAP_END, FALSE, KEY_WRAP, MAP_CHILD_SEP,
-            MAP_CHILD_SET, MAP_WRAP, MAP_WRAP_END, NULL, STRING_WRAP, TRUE,
+            Parser, ARRAY_CHILD_SEP, ARRAY_WRAP, ARRAY_WRAP_END, FALSE, IDENTIFIER_WRAP,
+            MAP_CHILD_SEP, MAP_CHILD_SET, MAP_WRAP, MAP_WRAP_END, NULL, STRING_WRAP, TRUE,
         },
         Error, QueryResult,
     },
@@ -21,7 +21,7 @@ pub struct StringExpression {
 
 impl StringExpression {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
-        parser.consume_token(STRING_WRAP)?;
+        parser.consume_next(STRING_WRAP)?;
         let value = match parser.token() {
             Some(tok) if tok == STRING_WRAP => {
                 return Ok(StringExpression {
@@ -63,7 +63,7 @@ pub struct NullExpression;
 
 impl NullExpression {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
-        parser.consume_token(NULL)?;
+        parser.consume_next(NULL)?;
         Ok(NullExpression)
     }
 }
@@ -180,12 +180,12 @@ pub struct MapLiteral(HashMap<String, Box<dyn Expression>>);
 
 impl MapLiteral {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
-        parser.consume_token(MAP_WRAP)?;
+        parser.consume_next(MAP_WRAP)?;
         let mut map = HashMap::new();
         loop {
             // pase 'key': <expression>
-            let key = parser.parse_string(KEY_WRAP)?;
-            parser.consume_token(MAP_CHILD_SET)?;
+            let key = parser.parse_string(IDENTIFIER_WRAP)?;
+            parser.consume_next(MAP_CHILD_SET)?;
             let value = parser.parse_expression()?;
 
             map.insert(key, value);
@@ -232,7 +232,11 @@ impl Display for MapLiteral {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
         for (k, v) in self.iter() {
-            write!(f, "'{}': {}, ", k, v)?;
+            write!(
+                f,
+                "{}{}{}{} {}, ",
+                IDENTIFIER_WRAP, k, IDENTIFIER_WRAP, MAP_CHILD_SET, v
+            )?;
         }
         write!(f, "}}")
     }
@@ -243,7 +247,7 @@ pub struct ArrayLiteral(Vec<Box<dyn Expression>>);
 
 impl ArrayLiteral {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
-        parser.consume_token(ARRAY_WRAP)?;
+        parser.consume_next(ARRAY_WRAP)?;
         let mut arr = Vec::new();
         loop {
             let value = parser.parse_expression()?;

@@ -25,15 +25,15 @@ impl CountAggregation {
     }
 
     pub fn from_parser(parser: &mut Parser) -> QueryResult<CountAggregation> {
-        parser.consume_token(AGGREGATION_COUNT)?;
-        parser.consume_token(FN_OPEN)?;
+        parser.consume_next(AGGREGATION_COUNT)?;
+        parser.consume_next(FN_OPEN)?;
 
         let expr = match parser.peak() {
             Some(FN_CLOSE) => None,
             _ => Some(parser.parse_expression()?),
         };
 
-        parser.consume_token(FN_CLOSE)?;
+        parser.consume_next(FN_CLOSE)?;
 
         Ok(CountAggregation { expr, count: 0 })
     }

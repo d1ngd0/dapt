@@ -21,12 +21,12 @@ macro_rules! impl_math_op {
 
         impl $name {
             pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
-                parser.consume_token($fn)?;
-                parser.consume_token(FN_OPEN)?;
+                parser.consume_next($fn)?;
+                parser.consume_next(FN_OPEN)?;
                 let left = parser.parse_expression()?;
-                parser.consume_token(FN_SEP)?;
+                parser.consume_next(FN_SEP)?;
                 let right = parser.parse_expression()?;
-                parser.consume_token(FN_CLOSE)?;
+                parser.consume_next(FN_CLOSE)?;
 
                 Ok($name { left, right })
             }

@@ -19,10 +19,10 @@ pub struct SumAggregation {
 
 impl SumAggregation {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<SumAggregation> {
-        parser.consume_token(AGGREGATION_SUM)?;
-        parser.consume_token(FN_OPEN)?;
+        parser.consume_next(AGGREGATION_SUM)?;
+        parser.consume_next(FN_OPEN)?;
         let value = parser.parse_expression()?;
-        parser.consume_token(FN_CLOSE)?;
+        parser.consume_next(FN_CLOSE)?;
 
         Ok(SumAggregation { value, sum: None })
     }

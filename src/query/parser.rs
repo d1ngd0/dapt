@@ -8,7 +8,10 @@ use std::{
 use cityhash::city_hash_64;
 
 use crate::{
-    path::{node::FieldLiteral, parser::Node},
+    path::{
+        node::FieldLiteral,
+        parser::{Node, Parser as PathParser},
+    },
     Any, Dapt, DaptBuilder, Path,
 };
 
@@ -46,7 +49,8 @@ pub const GREATER_THAN_EQUAL: &str = ">=";
 pub const LESS_THAN_EQUAL: &str = "<=";
 pub const AND: &str = "AND";
 pub const OR: &str = "OR";
-pub const KEY_WRAP: &str = "\"";
+pub const KEY_WRAP: &str = "`";
+pub const IDENTIFIER_WRAP: &str = "\"";
 pub const STRING_WRAP: &str = "'";
 pub const NULL: &str = "NULL";
 pub const TRUE: &str = "TRUE";
@@ -751,7 +755,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_interval(&mut self) -> QueryResult<Interval> {
-        self.consume_token(INTERVAL)?;
+        self.consume_next(INTERVAL)?;
         let duration = self.parse_string(STRING_WRAP)?;
 
         Ok(Interval {
@@ -761,19 +765,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_limit(&mut self) -> QueryResult<Limit> {
-        self.consume_token(LIMIT)?;
+        self.consume_next(LIMIT)?;
         let count = self.parse_positive_number()?;
         Ok(Limit { count })
     }
 
     pub fn continue_if(&mut self, tok: &str) -> bool {
-        let peaked = match self.lex.peak() {
-            Some(val) => val,
-            None => return false,
-        };
-
+        let peaked = self.lex.peak().unwrap_or_default();
         if peaked.to_uppercase() == tok {
-            let _ = self.token(); // consume the token
+            self.consume();
             true
         } else {
             false
@@ -781,8 +781,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_group(&mut self, select: SelectClause) -> QueryResult<GroupBy> {
-        self.consume_token(GROUP)?;
-        self.consume_token(BY)?;
+        self.consume_next(GROUP)?;
+        self.consume_next(BY)?;
 
         let mut fields = Vec::new();
         let groups = HashMap::new();
@@ -800,8 +800,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_order(&mut self) -> QueryResult<OrderBy> {
-        self.consume_token(ORDER)?;
-        self.consume_token(BY)?;
+        self.consume_next(ORDER)?;
+        self.consume_next(BY)?;
 
         let mut fields = Vec::new();
         loop {
@@ -813,14 +813,14 @@ impl<'a> Parser<'a> {
                         field: expr,
                         direction: OrderDirection::Ascending,
                     });
-                    self.consume_token(ORDER_ASC)?;
+                    self.consume_next(ORDER_ASC)?;
                 }
                 Some(ORDER_DESC) => {
                     fields.push(OrderByColumn {
                         field: expr,
                         direction: OrderDirection::Descending,
                     });
-                    self.consume_token(ORDER_DESC)?;
+                    self.consume_next(ORDER_DESC)?;
                 }
                 _ => fields.push(OrderByColumn {
                     field: expr,
@@ -837,20 +837,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_from(&mut self) -> QueryResult<FromClause> {
-        self.consume_token(FROM)?;
+        self.consume_next(FROM)?;
 
         let mut sources = Vec::new();
 
-        sources.push(self.parse_string(KEY_WRAP)?);
+        sources.push(self.parse_string(IDENTIFIER_WRAP)?);
         while self.continue_if(FROM_SEP) {
-            sources.push(self.parse_string(KEY_WRAP)?);
+            sources.push(self.parse_string(IDENTIFIER_WRAP)?);
         }
 
         Ok(FromClause(sources))
     }
 
     pub fn parse_select(&mut self) -> QueryResult<SelectClause> {
-        self.consume_token(SELECT)?;
+        self.consume_next(SELECT)?;
 
         let mut fields = Vec::new();
         fields.push(self.parse_column()?);
@@ -862,22 +862,44 @@ impl<'a> Parser<'a> {
         Ok(SelectClause { fields })
     }
 
+    // TODO: you need to change this to a key.
     pub fn parse_column(&mut self) -> QueryResult<Column> {
         let agg = self.parse_aggregation()?;
 
-        let alias = match self.lex.peak() {
-            Some(val) if val.to_string().to_uppercase() == SELECT_ALIAS => {
-                self.consume_token(SELECT_ALIAS)?;
-                let path = self.parse_string(KEY_WRAP)?;
-                Path::new(&path)?
-            }
-            _ => {
-                let field = FieldLiteral::from_escaped(&format!("{}", agg));
-                Path::from(vec![Node::FieldLiteral(field)])
-            }
+        let alias = if self.is_next(SELECT_ALIAS) {
+            self.consume();
+            self.parse_key()?
+        } else {
+            let field = FieldLiteral::from_escaped(&format!("{}", agg));
+            Path::from(vec![Node::FieldLiteral(field)])
         };
 
+        if !alias.is_settable() {
+            return Err(Error::InvalidQuery(format!(
+                "{} is not a settable alias",
+                alias
+            )));
+        }
+
         Ok(Column { agg, alias })
+    }
+
+    // parse_key will parse a valid key from the parser.
+    pub fn parse_key(&mut self) -> QueryResult<Path> {
+        let is_wrapped = self.is_next(KEY_WRAP);
+        if is_wrapped {
+            self.consume();
+        }
+
+        let mut path_parser = PathParser::from(self.future());
+        let path = path_parser.parse()?;
+        self.advance_by(path_parser.chars_consumed());
+
+        if is_wrapped {
+            self.consume_next(KEY_WRAP)?;
+        }
+
+        Ok(path)
     }
 
     pub fn parse_aggregation(&mut self) -> QueryResult<Box<dyn Aggregation>> {
@@ -1146,10 +1168,7 @@ impl<'a> Parser<'a> {
         let mut chars = left.chars();
         match chars.next() {
             Some('0'..='9') | Some('-') => Ok(Box::new(NumberExpression::from_parser(self)?)),
-            _ => Err(Error::with_history(
-                &format!("unexpected token {}", left),
-                self.consumed(),
-            )),
+            _ => Ok(Box::new(PathExpression::from_parser(self)?)),
         }
     }
 
@@ -1197,33 +1216,50 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn consume_token(&mut self, expected: &str) -> QueryResult<()> {
-        match self.lex.token() {
-            Some(tok) if tok.to_uppercase() == expected => Ok(()),
-            Some(tok) => Err(Error::with_history(
-                &format!("expected \"{}\" but got \"{}\"", expected, tok),
-                self.consumed(),
-            )),
-            None => Err(Error::unexpected_eof(self.consumed())),
-        }
+    // is_next will check to see if the next value matches the supplied
+    // token.
+    pub fn is_next(&mut self, tok: &str) -> bool {
+        let seen = match self.lex.peak() {
+            Some(seen) => seen,
+            None => return false,
+        };
+
+        tok == seen.to_uppercase()
     }
 
-    // pub fn parse_query(&mut self) -> Option<Node> {
-    //     let tok = self.lex.token()?;
+    // consume_next will return an error if the next token consumed is not the
+    // one supplied to the parser.
+    pub fn consume_next(&mut self, expected: &str) -> QueryResult<()> {
+        let seen = self
+            .lex
+            .token()
+            .ok_or_else(|| Error::UnexpectedEOF(self.consumed().to_string()))?;
 
-    //     match tok {
-    //         SELECT => Some(Node::Select),
-    //     }
-    // }
+        if seen.to_uppercase() != expected {
+            return Err(Error::with_history(
+                &format!("expected \"{}\" but got \"{}\"", expected, seen),
+                self.consumed(),
+            ));
+        }
 
-    // pub fn parse_select(&mut self) -> Option<()> {
-    //     let tok = self.lex.token()?;
+        Ok(())
+    }
 
-    //     match tok {
-    //         SELECT => todo!(),
-    //         _ => None,
-    //     }
-    // }
+    // consume just consumes the next token, no questions asked.
+    pub fn consume(&mut self) {
+        let _ = self.lex.token();
+    }
+
+    // future returns tokens in the future.
+    pub fn future(&self) -> &str {
+        self.lex.future()
+    }
+
+    // advance_by moves the head of the lexor forward by the defined
+    // number of characters.
+    pub fn advance_by(&mut self, delta: usize) {
+        self.lex.advance_head(delta)
+    }
 }
 
 struct Hasher {
@@ -1411,7 +1447,7 @@ mod tests {
         // so we can compare that to an array literal
         assert_conjunction!(
             r#"{"a": {"b": "hello", "c": "world"}}"#,
-            r#" "a.*" == ['hello', 'world'] "#,
+            r#" a.* == ['hello', 'world'] "#,
             true
         );
 
@@ -1420,7 +1456,7 @@ mod tests {
         // same with maps
         assert_conjunction!(
             r#"{"a": {"b": "hello", "c": "world"}}"#,
-            r#" "a.*" == ["a.b", "a.c"] "#,
+            r#" a.* == ["a"."b", a.c] "#,
             true
         );
 
@@ -1455,11 +1491,7 @@ mod tests {
 
         // finally in is very helpful when we don't know how many things our key matches
         // but we want to evaluate to true if one of them matches
-        assert_conjunction!(
-            r#"{"a": {"a": 1, "b": 2, "c": 3}}"#,
-            r#" 2 in "a.*" "#,
-            true
-        );
+        assert_conjunction!(r#"{"a": {"a": 1, "b": 2, "c": 3}}"#, r#" 2 in a.* "#, true);
     }
 
     macro_rules! assert_where {
@@ -1573,7 +1605,7 @@ mod tests {
         );
 
         assert_select!(
-            r#"SELECT sum("a") as "a.b.c" "#,
+            r#"SELECT sum("a") as "a"."b"."c" "#,
             r#"{"a":{"b":{"c":6}}}"#,
             // values
             r#"{"a": 1}"#,

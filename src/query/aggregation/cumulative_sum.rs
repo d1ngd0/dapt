@@ -24,10 +24,10 @@ impl CumulativeSum {
     }
 
     pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
-        parser.consume_token(AGGREGATION_CUMULATIVE_SUM)?;
-        parser.consume_token(FN_OPEN)?;
+        parser.consume_next(AGGREGATION_CUMULATIVE_SUM)?;
+        parser.consume_next(FN_OPEN)?;
         let agg = parser.parse_aggregation()?;
-        parser.consume_token(FN_CLOSE)?;
+        parser.consume_next(FN_CLOSE)?;
 
         Ok(CumulativeSum { sum: None, agg })
     }

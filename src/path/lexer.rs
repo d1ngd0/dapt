@@ -14,6 +14,20 @@ const TOKEN_REGEX: char = '/';
 const TOKEN_ESCAPE: char = '\\';
 const TOKEN_STRING_WRAP: char = '"';
 
+// These tokens are not actually used by the path parser, but
+// they should end lexing since they are special tokens higher up.
+const TOKEN_KEY_WRAP: char = '`';
+const TOKEN_EQUAL: char = '=';
+// const TOKEN_COMMA: char = ','; first_sep
+const TOKEN_GREATER: char = '>';
+const TOKEN_LESS: char = '<';
+const TOKEN_COLON: char = ':';
+const TOKEN_PLUS: char = '+';
+const TOKEN_MINUS: char = '-';
+// const TOKEN_DIVIDE: char = '/'; regex
+// const TOKEN_MULTIPLY: char = '*'; wildcard
+const TOKEN_MODULUS: char = '%';
+
 pub struct Lexer<'a> {
     path: &'a str,
     head: usize,
@@ -45,6 +59,12 @@ impl<'a> Lexer<'a> {
         let (tok, next_index) = self.full_next()?;
         self.head = next_index;
         Some(tok)
+    }
+
+    // chars_consumed returns the number of characters that were consumed
+    // by the lexor.
+    pub fn chars_consumed(&self) -> usize {
+        self.head
     }
 
     // peak returns the next token without moving the head forward
@@ -97,11 +117,19 @@ impl<'a> Lexer<'a> {
         // important, for every path out of this loop you MUST consider what to
         // do with next_index given your context.
         'charloop: for char in c {
+            // even though we don't care about whitespace in the path, higher
+            // level lexors do, so we need to respect their needs for whitespace
+            // to break lexing a token.
+            if !escape_all && char.is_whitespace() {
+                break 'charloop;
+            }
             // Any special characters should be listed here. They can all be escaped
             match char {
                 TOKEN_DOT | TOKEN_WILDCARD | TOKEN_RECURSIVE | TOKEN_ARRAY_OPEN
                 | TOKEN_ARRAY_CLOSE | TOKEN_FIRST_OPEN | TOKEN_FIRST_CLOSE | TOKEN_MULTI_OPEN
-                | TOKEN_MULTI_CLOSE | TOKEN_FIRST_SEP | TOKEN_MULTI_SEP => {
+                | TOKEN_MULTI_CLOSE | TOKEN_FIRST_SEP | TOKEN_MULTI_SEP | TOKEN_KEY_WRAP
+                | TOKEN_EQUAL | TOKEN_GREATER | TOKEN_LESS | TOKEN_COLON | TOKEN_PLUS
+                | TOKEN_MINUS | TOKEN_MODULUS => {
                     // if the previous token was an escape token, we just want to add this to the
                     // existing token
                     if escape_next || escape_all {
@@ -201,6 +229,26 @@ impl<'a> Lexer<'a> {
             None
         }
     }
+
+    // consume whitespace will consume until it hits a non whitespace character.
+    pub fn consume_whitespace(&mut self) {
+        // if there is an escape token we are pasing some kind of string,
+        // so we don't want to consume this or we will lose strings with whitespace
+        // at the start like ' hello' or ' '
+        if self.escape_token.is_some() {
+            return;
+        }
+
+        let c = self.path[self.head..].chars();
+
+        for char in c {
+            if !char.is_whitespace() {
+                break;
+            }
+
+            self.head += char.len_utf8();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -225,8 +273,16 @@ mod test {
 
     #[test]
     fn test_lexor() {
-        test_lexor!("Im.am a.fish", "Im", ".", "am a", ".", "fish");
-        test_lexor!(" ", " ");
+        test_lexor!(
+            "Im.\"am a\".fish",
+            "Im",
+            ".",
+            "\"",
+            "am a",
+            "\"",
+            ".",
+            "fish"
+        );
         test_lexor!(
             "labels.{hostname|host}",
             "labels",
@@ -270,6 +326,15 @@ mod test {
         test_lexor!("/.*/.something", "/", ".*", "/", ".", "something");
         test_lexor!("/asd\"asdf/", "/", "asd\"asdf", "/");
         test_lexor!(r#"\"a.b.c\""#, "\\\"a", ".", "b", ".", "c\\\"");
-        test_lexor!(r#"Im.am a.fish"#, "Im", ".", "am a", ".", "fish");
+        test_lexor!(
+            r#"Im."am a".fish"#,
+            "Im",
+            ".",
+            "\"",
+            "am a",
+            "\"",
+            ".",
+            "fish"
+        );
     }
 }

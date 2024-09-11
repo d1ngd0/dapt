@@ -21,10 +21,10 @@ pub struct MinAggregation {
 
 impl MinAggregation {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<MinAggregation> {
-        parser.consume_token(AGGREGATION_MIN)?;
-        parser.consume_token(FN_OPEN)?;
+        parser.consume_next(AGGREGATION_MIN)?;
+        parser.consume_next(FN_OPEN)?;
         let value = parser.parse_expression()?;
-        parser.consume_token(FN_CLOSE)?;
+        parser.consume_next(FN_CLOSE)?;
 
         Ok(MinAggregation { value, min: None })
     }

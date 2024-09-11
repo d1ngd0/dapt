@@ -19,10 +19,10 @@ pub struct AvgAggregation {
 
 impl AvgAggregation {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<AvgAggregation> {
-        parser.consume_token(AGGREGATION_AVG)?;
-        parser.consume_token(FN_OPEN)?;
+        parser.consume_next(AGGREGATION_AVG)?;
+        parser.consume_next(FN_OPEN)?;
         let expr = parser.parse_expression()?;
-        parser.consume_token(FN_CLOSE)?;
+        parser.consume_next(FN_CLOSE)?;
 
         Ok(AvgAggregation {
             expr,
