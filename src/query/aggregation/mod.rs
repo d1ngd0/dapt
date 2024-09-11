@@ -12,7 +12,7 @@ use std::fmt::Display;
 
 use crate::{Any, Dapt, Path};
 
-use super::parser::Column;
+use super::{expression::Expression, parser::Column, QueryResult};
 
 pub use avg::*;
 pub use count::*;
@@ -42,6 +42,15 @@ pub trait Aggregation: Display + DynClone + Send + Sync {
     // The expression passed in is for the combining aggregation. Since aliasing will
     // be done higher up.
     fn composable(&self, expr: &Path) -> (Vec<Column>, Box<dyn Aggregation>);
+
+    // expression, when implemented on an aggregation, will return the underlying
+    // expression within the aggregation. This enables the aggregation to be used
+    // for grouping.
+    fn expression(&self) -> QueryResult<Box<dyn Expression>> {
+        return Err(super::Error::InvalidQuery(
+            "aggregation can not be used in group by".into(),
+        ));
+    }
 }
 dyn_clone::clone_trait_object!(Aggregation);
 

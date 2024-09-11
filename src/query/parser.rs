@@ -107,12 +107,7 @@ impl Column {
 
 impl Display for Column {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} AS \"{}\"",
-            self.agg,
-            format!("{}", self.alias).replace("\"", "\\\"")
-        )
+        write!(f, "{} AS {}", self.agg, self.alias)
     }
 }
 
@@ -528,6 +523,20 @@ impl SelectClause {
 
         (composable, combine)
     }
+
+    // alias_of returns a clone of the underlying expression that the
+    // expression passed in is aliasing. It returns nothing if the
+    // expressions provided does not match a selected column
+    pub fn alias_of(&self, expr: &Box<dyn Expression>) -> QueryResult<Box<dyn Expression>> {
+        for col in self.fields.iter() {
+            println!("{} == {}", col.alias.to_string(), expr.to_string());
+            if col.alias.to_string() == expr.to_string() {
+                return col.agg.expression();
+            }
+        }
+
+        Err(Error::NotFound)
+    }
 }
 
 impl Display for SelectClause {
@@ -787,9 +796,21 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         let groups = HashMap::new();
 
-        fields.push(self.parse_expression()?);
-        while self.continue_if(FROM_SEP) {
-            fields.push(self.parse_expression()?);
+        loop {
+            let alias = self.parse_expression()?;
+            let expr = match select.alias_of(&alias) {
+                Ok(expr) => Ok(expr), // the alias was of an expression in the select clause
+                Err(Error::NotFound) => Ok(alias), // the alias is an expression, not in the select
+                Err(err) => Err(err), // there was a real error
+            }?;
+
+            println!("{}", expr);
+
+            fields.push(expr);
+
+            if !self.continue_if(FROM_SEP) {
+                break;
+            }
         }
 
         Ok(GroupBy {
@@ -1547,7 +1568,7 @@ mod tests {
                 "c": 10.0
             }"#,
             r#"WHERE "non_existant" == "other_nonexistant" "#,
-            "Non existent key: both keys \"non_existant\" == \"other_nonexistant\" do not exist"
+            "Non existent key: both keys non_existant == other_nonexistant do not exist"
         );
 
         assert_where_error!(
@@ -1557,7 +1578,7 @@ mod tests {
                 "c": 10.0
             }"#,
             r#"WHERE "a" != "b" AND ("nope" == "nothere" OR "a" == "c") "#,
-            "Non existent key: both keys \"nope\" == \"nothere\" do not exist"
+            "Non existent key: both keys nope == nothere do not exist"
         );
     }
 
@@ -1639,8 +1660,8 @@ mod tests {
     #[test]
     fn test_query() {
         assert_select!(
-            r#"SELECT sum("a") as "sum", count("a") as "count", "b" WHERE "a" > 1 GROUP BY "b" ORDER BY "b" "#,
-            r#"[{"sum":7,"count":2,"b":"hello"},{"sum":2,"count":1,"b":"hi"}]"#,
+            r#"SELECT sum("a") as "sum", count("a") as "count", "b" as banana WHERE "a" > 1 GROUP BY "banana" ORDER BY "banana" "#,
+            r#"[{"sum":7,"count":2,"banana":"hello"},{"sum":2,"count":1,"banana":"hi"}]"#,
             // values
             r#"{"a": 1, "b": "hi"}"#,
             r#"{"a": 2, "b": "hi"}"#,
@@ -1874,7 +1895,7 @@ mod tests {
     fn test_display_query() {
         assert_display_query!(
             r#"SELECT sum("a") as "sum", count("a") as "count", "b" WHERE "a" > 1 GROUP BY "b" ORDER BY "b""#,
-            "SELECT SUM(\"a\") AS \"sum\", COUNT(\"a\") AS \"count\", \"b\" AS \"b\" WHERE \"a\" > 1 HAVING true GROUP BY \"b\" ORDER BY \"b\""
+            "SELECT SUM(a) AS sum, COUNT(a) AS count, b AS b WHERE a > 1 HAVING true GROUP BY b ORDER BY b"
         );
     }
 

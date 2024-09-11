@@ -1,7 +1,10 @@
 use std::{fmt::Display, ops::Deref};
 
 use crate::{
-    query::{parser::Parser, QueryResult},
+    query::{
+        parser::{Parser, KEY_WRAP},
+        QueryResult,
+    },
     Any, Dapt, Path,
 };
 
@@ -49,6 +52,6 @@ impl Expression for PathExpression {
 
 impl Display for PathExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\"", format!("{}", self.path).replace("\"", "\\\""))
+        write!(f, "{}", self.path)
     }
 }
