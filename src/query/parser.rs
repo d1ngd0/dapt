@@ -2,6 +2,7 @@ use core::fmt;
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
+    ops::Neg,
     time::{Duration, SystemTime},
 };
 
@@ -49,6 +50,7 @@ pub const GREATER_THAN_EQUAL: &str = ">=";
 pub const LESS_THAN_EQUAL: &str = "<=";
 pub const AND: &str = "AND";
 pub const OR: &str = "OR";
+pub const NEGATE: &str = "!";
 pub const KEY_WRAP: &str = "`";
 pub const IDENTIFIER_WRAP: &str = "\"";
 pub const STRING_WRAP: &str = "'";
@@ -1000,8 +1002,8 @@ impl<'a> Parser<'a> {
                 }
                 OR => {
                     let _ = self.lex.token(); // consume the OR token
-                    let right = self.parse_condition()?;
-                    conj = conj.promote_or(right);
+                    let right = self.parse_conjunction()?;
+                    conj = conj.promote_or(Box::new(right));
                 }
                 // if we get something else we just break... this allows us
                 // to validate the exit token outside the context of parsing
@@ -1031,6 +1033,11 @@ impl<'a> Parser<'a> {
                 }
 
                 return Ok(Box::new(condition));
+            }
+            Some(NEGATE) => {
+                self.consume();
+                let condition = self.parse_condition()?;
+                return Ok(Box::new(NegateCondition::new(condition)));
             }
             _ => (),
         };
@@ -1558,6 +1565,30 @@ mod tests {
                 "c": 10.0
             }"#,
             r#"WHERE "a" != "b" AND ("a" == "c" OR "nope" == "nothere") "#,
+            true
+        );
+
+        // make sure we respect order of operations
+        // this should be understood as
+        // (a = 10 AND b = 9) OR (a = 11 AND b = 5)
+        assert_where!(
+            r#"{
+                "a": 10,
+                "b": 9,
+                "c": 10.0
+            }"#,
+            r#"WHERE a = 10 AND b = 9 OR a = 11 AND b = 5 "#,
+            true
+        );
+
+        // negate
+        assert_where!(
+            r#"{
+                "a": 10,
+                "b": 9,
+                "c": 10.0
+            }"#,
+            r#"WHERE !(a = 11 AND b = 5) "#,
             true
         );
 

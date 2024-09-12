@@ -4,7 +4,8 @@ use dyn_clone::DynClone;
 
 use crate::{
     query::parser::{
-        EQUAL_DOUBLE, GREATER_THAN, GREATER_THAN_EQUAL, IN, LESS_THAN, LESS_THAN_EQUAL, NOT_EQUAL,
+        EQUAL_DOUBLE, GREATER_THAN, GREATER_THAN_EQUAL, IN, LESS_THAN, LESS_THAN_EQUAL, NEGATE,
+        NOT_EQUAL,
     },
     Any, Dapt, Number,
 };
@@ -40,6 +41,30 @@ impl Display for NoopCondition {
 impl Default for NoopCondition {
     fn default() -> Self {
         Self {}
+    }
+}
+
+// Negate flips the boolean
+#[derive(Clone)]
+pub struct NegateCondition {
+    cond: Box<dyn Condition>,
+}
+
+impl NegateCondition {
+    pub fn new(cond: Box<dyn Condition>) -> Self {
+        Self { cond }
+    }
+}
+
+impl Condition for NegateCondition {
+    fn evaluate(&self, d: &Dapt) -> QueryResult<bool> {
+        Ok(!self.cond.evaluate(d)?)
+    }
+}
+
+impl Display for NegateCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", NEGATE, self.cond)
     }
 }
 
