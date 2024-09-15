@@ -128,14 +128,14 @@ You could then write a query such as:
 
 ```SQL
 SELECT
-  sum("tickets_purchased") as "total.tickets",
-  count() as "total.purchases",
-  "name"
+  sum(tickets_purchased) as "total"."tickets",
+  count() as total.purchases,
+  name
 WHERE
-  "state" IN ['NY', 'CA']
-HAVING "total_tickets" > 20
-GROUP BY "name"
-ORDER BY "total_tickets" DESC
+  state IN ['NY', 'CA']
+HAVING total_tickets > 20
+GROUP BY name
+ORDER BY total_tickets DESC
 TOP 3
 ```
 
@@ -174,7 +174,7 @@ use dapt::query::Query;
 use dapt::Dapt;
 
 fn main() {
-  let q = Query::new("SELECT sum(\"tickets_purchased\") as \"total.tickets\", count() as \"total.purchases\", \"name\" WHERE \"state\" IN ['NY', 'CA'] HAVING \"total.tickets\" > 20 GROUP BY \"name\" ORDER BY \"total.tickets\" DESC TOP 3");
+  let q = Query::new("SELECT sum(tickets_purchased) as total.tickets, count() as total.purchases, name WHERE state IN ['NY', 'CA'] HAVING total.tickets > 20 GROUP BY name ORDER BY total.tickets DESC TOP 3");
 
   // load up some data
   let data: Vec<Dapt> = vec![
