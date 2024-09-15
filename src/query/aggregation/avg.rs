@@ -21,7 +21,7 @@ impl AvgAggregation {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<AvgAggregation> {
         parser.consume_next(AGGREGATION_AVG)?;
         parser.consume_next(FN_OPEN)?;
-        let expr = parser.parse_expression()?;
+        let expr = parser.expression()?;
         parser.consume_next(FN_CLOSE)?;
 
         Ok(AvgAggregation {

@@ -62,7 +62,7 @@ mod test {
     macro_rules! assert_aggregation {
         ( $expr:expr, $expected:expr, $($source:expr),+) => {
             let mut parser = Parser::from($expr);
-            let mut expr = parser.parse_aggregation().unwrap();
+            let mut expr = parser.aggregation().unwrap();
             let sources = vec![$(serde_json::from_str($source).unwrap()),+];
             for d in sources {
                 expr.process(&d);
@@ -128,6 +128,15 @@ mod test {
         assert_aggregation!(
             r#"MIN("a")"#,
             Any::USize(1),
+            r#"{"a": 1}"#,
+            r#"{"a": 2}"#,
+            r#"{"a": 3}"#
+        );
+
+        // order of operations
+        assert_aggregation!(
+            r#"(MIN("a")*MAX("a")+10^2)*2"#,
+            Any::USize(206),
             r#"{"a": 1}"#,
             r#"{"a": 2}"#,
             r#"{"a": 3}"#

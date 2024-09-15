@@ -146,8 +146,7 @@ fn test_filter() {
     assert_eq!(f.filter(&d).unwrap(), true);
 
     // c[1] == 2
-    let f = WhereClause::new("WHERE add(c[1], 4) > 5 AND d.*.deeper == {\"deepest\": 'hello'}")
-        .unwrap();
+    let f = WhereClause::new("WHERE c[1]+4 > 5 AND d.*.deeper == {\"deepest\": 'hello'}").unwrap();
     assert_eq!(f.filter(&d).unwrap(), true);
 }
 

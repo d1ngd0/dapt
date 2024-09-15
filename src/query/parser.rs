@@ -2,7 +2,6 @@ use core::fmt;
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
-    ops::Neg,
     time::{Duration, SystemTime},
 };
 
@@ -65,15 +64,19 @@ pub const ARRAY_WRAP: &str = "[";
 pub const ARRAY_WRAP_END: &str = "]";
 pub const ARRAY_CHILD_SEP: &str = ",";
 
+pub const ADD: &str = "+";
+pub const MINUS: &str = "-";
+pub const MULTIPLY: &str = "*";
+pub const DIVIDE: &str = "/";
+pub const MODULUS: &str = "%";
+pub const EXPONENT: &str = "^";
+pub const SUB_EXPR_OPEN: &str = "(";
+pub const SUB_EXPR_CLOSE: &str = ")";
+
 pub const FN_OPEN: &str = "(";
 pub const FN_CLOSE: &str = ")";
 pub const FN_SEP: &str = ",";
 
-pub const FN_ADD: &str = "ADD";
-pub const FN_MINUS: &str = "NEG";
-pub const FN_MULTIPLY: &str = "MUL";
-pub const FN_DIVIDE: &str = "DIV";
-pub const FN_MODULUS: &str = "MOD";
 pub const FN_EXISTS: &str = "EXISTS";
 
 pub const AGGREGATION_SUM: &str = "SUM";
@@ -799,7 +802,7 @@ impl<'a> Parser<'a> {
         let groups = HashMap::new();
 
         loop {
-            let alias = self.parse_expression()?;
+            let alias = self.expression()?;
             let expr = match select.alias_of(&alias) {
                 Ok(expr) => Ok(expr), // the alias was of an expression in the select clause
                 Err(Error::NotFound) => Ok(alias), // the alias is an expression, not in the select
@@ -828,7 +831,7 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         loop {
-            let expr = self.parse_expression()?;
+            let expr = self.expression()?;
 
             match self.lex.peak() {
                 Some(ORDER_ASC) => {
@@ -887,7 +890,7 @@ impl<'a> Parser<'a> {
 
     // TODO: you need to change this to a key.
     pub fn parse_column(&mut self) -> QueryResult<Column> {
-        let agg = self.parse_aggregation()?;
+        let agg = self.aggregation()?;
 
         let alias = if self.is_next(SELECT_ALIAS) {
             self.consume();
@@ -925,25 +928,104 @@ impl<'a> Parser<'a> {
         Ok(path)
     }
 
-    pub fn parse_aggregation(&mut self) -> QueryResult<Box<dyn Aggregation>> {
-        let tok = self
-            .lex
-            .peak()
-            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
+    pub fn aggregation(&mut self) -> QueryResult<Box<dyn Aggregation>> {
+        self.parse_aggregation_add()
+    }
+
+    fn parse_aggregation_add(&mut self) -> QueryResult<Box<dyn Aggregation>> {
+        let mut expr = self.parse_aggregation_multiply()?;
+
+        loop {
+            let next = self.peak().unwrap_or_default();
+            match next {
+                ADD => {
+                    self.consume();
+                    let right = self.parse_aggregation_multiply()?;
+                    expr = Box::new(AddAggregation::new(expr, right))
+                }
+                MINUS => {
+                    self.consume();
+                    let right = self.parse_aggregation_multiply()?;
+                    expr = Box::new(SubtractAggregation::new(expr, right))
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_aggregation_multiply(&mut self) -> QueryResult<Box<dyn Aggregation>> {
+        let mut expr = self.parse_aggregation_exponent()?;
+
+        loop {
+            let next = self.peak().unwrap_or_default();
+            match next {
+                MULTIPLY => {
+                    self.consume();
+                    let right = self.parse_aggregation_exponent()?;
+                    expr = Box::new(MultiplyAggregation::new(expr, right))
+                }
+                DIVIDE => {
+                    self.consume();
+                    let right = self.parse_aggregation_exponent()?;
+                    expr = Box::new(DivideAggregation::new(expr, right))
+                }
+                MODULUS => {
+                    self.consume();
+                    let right = self.parse_aggregation_exponent()?;
+                    expr = Box::new(ModulusAggregation::new(expr, right))
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_aggregation_exponent(&mut self) -> QueryResult<Box<dyn Aggregation>> {
+        let mut expr = self.parse_aggregation()?;
+
+        loop {
+            let next = self.peak().unwrap_or_default();
+            match next {
+                EXPONENT => {
+                    self.consume();
+                    let right = self.parse_aggregation()?;
+                    expr = Box::new(ExponentAggregation::new(expr, right))
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_aggregation(&mut self) -> QueryResult<Box<dyn Aggregation>> {
+        let tok = self.peak().unwrap_or_default();
 
         match tok.to_uppercase().as_str() {
+            SUB_EXPR_OPEN => {
+                self.consume();
+                let expr = self.aggregation()?;
+                self.consume_next(SUB_EXPR_CLOSE)?;
+                Ok(Box::new(SubAggregation::new(expr)))
+            }
             AGGREGATION_SUM => Ok(Box::new(SumAggregation::from_parser(self)?)),
             AGGREGATION_COUNT => Ok(Box::new(CountAggregation::from_parser(self)?)),
             AGGREGATION_AVG => Ok(Box::new(AvgAggregation::from_parser(self)?)),
             AGGREGATION_CUMULATIVE_SUM => Ok(Box::new(CumulativeSum::from_parser(self)?)),
             AGGREGATION_MIN => Ok(Box::new(MinAggregation::from_parser(self)?)),
             AGGREGATION_MAX => Ok(Box::new(MaxAggregation::from_parser(self)?)),
-            FN_ADD => Ok(Box::new(AddAggregation::from_parser(self)?)),
-            FN_MINUS => Ok(Box::new(SubtractAggregation::from_parser(self)?)),
-            FN_MULTIPLY => Ok(Box::new(MultiplyAggregation::from_parser(self)?)),
-            FN_DIVIDE => Ok(Box::new(DivideAggregation::from_parser(self)?)),
-            FN_MODULUS => Ok(Box::new(ModulusAggregation::from_parser(self)?)),
-            _ => Ok(Box::new(ExpressionAggregation::from_parser(self)?)),
+            _ => {
+                let agg = ExpressionAggregation::from_parser(self)?;
+
+                if self.is_next(FN_OPEN) {
+                    return Err(Error::InvalidQuery(format!("unknown function {}", agg)));
+                }
+
+                Ok(Box::new(agg))
+            }
         }
     }
 
@@ -1042,7 +1124,7 @@ impl<'a> Parser<'a> {
             _ => (),
         };
 
-        let left = self.parse_expression()?;
+        let left = self.expression()?;
 
         let tok = match self.lex.peak() {
             None => return Ok(Box::new(DefaultExpressCondition::new(left))),
@@ -1052,7 +1134,7 @@ impl<'a> Parser<'a> {
         match tok.to_uppercase().as_str() {
             EQUAL | EQUAL_DOUBLE => {
                 let _ = self.token(); // consume the token
-                let right = match self.parse_expression() {
+                let right = match self.expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{EQUAL} expects expressions on both sides").as_str(),
@@ -1067,7 +1149,7 @@ impl<'a> Parser<'a> {
             }
             NOT_EQUAL => {
                 let _ = self.token(); // consume the token
-                let right = match self.parse_expression() {
+                let right = match self.expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{NOT_EQUAL} expects expressions on both sides").as_str(),
@@ -1082,7 +1164,7 @@ impl<'a> Parser<'a> {
             }
             GREATER_THAN => {
                 let _ = self.token(); // consume the token
-                let right = match self.parse_expression() {
+                let right = match self.expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{GREATER_THAN} expects expressions on both sides").as_str(),
@@ -1097,7 +1179,7 @@ impl<'a> Parser<'a> {
             }
             GREATER_THAN_EQUAL => {
                 let _ = self.token(); // consume the token
-                let right = match self.parse_expression() {
+                let right = match self.expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{GREATER_THAN_EQUAL} expects expressions on both sides")
@@ -1113,7 +1195,7 @@ impl<'a> Parser<'a> {
             }
             LESS_THAN => {
                 let _ = self.token(); // consume the token
-                let right = match self.parse_expression() {
+                let right = match self.expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             "equals expects expressions on both sides",
@@ -1128,7 +1210,7 @@ impl<'a> Parser<'a> {
             }
             LESS_THAN_EQUAL => {
                 let _ = self.token(); // consume the token
-                let right = match self.parse_expression() {
+                let right = match self.expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{LESS_THAN_EQUAL} expects expressions on both sides").as_str(),
@@ -1143,7 +1225,7 @@ impl<'a> Parser<'a> {
             }
             IN => {
                 let _ = self.token(); // consume the token
-                let right = match self.parse_expression() {
+                let right = match self.expression() {
                     Err(Error::UnexpectedEOF(_)) => {
                         return Err(Error::with_history(
                             format!("{IN} expects expressions on both sides").as_str(),
@@ -1161,22 +1243,93 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_expression(&mut self) -> QueryResult<Box<dyn Expression>> {
-        let left = self
-            .lex
-            .peak()
-            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
+    pub fn expression(&mut self) -> QueryResult<Box<dyn Expression>> {
+        self.parse_expression_add()
+    }
+
+    fn parse_expression_add(&mut self) -> QueryResult<Box<dyn Expression>> {
+        let mut expr = self.parse_expression_multiply()?;
+
+        loop {
+            let next = self.peak().unwrap_or_default();
+            match next {
+                ADD => {
+                    self.consume();
+                    let right = self.parse_expression_multiply()?;
+                    expr = Box::new(AddExpression::new(expr, right))
+                }
+                MINUS => {
+                    self.consume();
+                    let right = self.parse_expression_multiply()?;
+                    expr = Box::new(SubtractExpression::new(expr, right))
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_expression_multiply(&mut self) -> QueryResult<Box<dyn Expression>> {
+        let mut expr = self.parse_expression_exponent()?;
+
+        loop {
+            let next = self.peak().unwrap_or_default();
+            match next {
+                MULTIPLY => {
+                    self.consume();
+                    let right = self.parse_expression_exponent()?;
+                    expr = Box::new(MultiplyExpression::new(expr, right))
+                }
+                DIVIDE => {
+                    self.consume();
+                    let right = self.parse_expression_exponent()?;
+                    expr = Box::new(DivideExpression::new(expr, right))
+                }
+                MODULUS => {
+                    self.consume();
+                    let right = self.parse_expression_exponent()?;
+                    expr = Box::new(ModulusExpression::new(expr, right))
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_expression_exponent(&mut self) -> QueryResult<Box<dyn Expression>> {
+        let mut expr = self.parse_expression()?;
+
+        loop {
+            let next = self.peak().unwrap_or_default();
+            match next {
+                EXPONENT => {
+                    self.consume();
+                    let right = self.parse_expression()?;
+                    expr = Box::new(ExponentExpression::new(expr, right))
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_expression(&mut self) -> QueryResult<Box<dyn Expression>> {
+        let left = self.peak().unwrap_or_default();
 
         match left.to_uppercase().as_str() {
+            SUB_EXPR_OPEN => {
+                self.consume();
+                let expr = self.expression()?;
+                self.consume_next(SUB_EXPR_CLOSE)?;
+                Ok(Box::new(SubExpression::new(expr)))
+            }
             KEY_WRAP => Ok(Box::new(PathExpression::from_parser(self)?)),
             STRING_WRAP => Ok(Box::new(StringExpression::from_parser(self)?)),
             MAP_WRAP => Ok(Box::new(MapLiteral::from_parser(self)?)),
             ARRAY_WRAP => Ok(Box::new(ArrayLiteral::from_parser(self)?)),
-            FN_ADD => Ok(Box::new(AddExpression::from_parser(self)?)),
-            FN_MINUS => Ok(Box::new(SubtractExpression::from_parser(self)?)),
-            FN_MULTIPLY => Ok(Box::new(MultiplyExpression::from_parser(self)?)),
-            FN_DIVIDE => Ok(Box::new(DivideExpression::from_parser(self)?)),
-            FN_MODULUS => Ok(Box::new(ModulusExpression::from_parser(self)?)),
             FN_LOWER => Ok(Box::new(StringLower::from_parser(self)?)),
             FN_UPPER => Ok(Box::new(StringUpper::from_parser(self)?)),
             FN_LENGTH => Ok(Box::new(StringLength::from_parser(self)?)),
@@ -1188,11 +1341,12 @@ impl<'a> Parser<'a> {
             TRUE => Ok(Box::new(BoolExpression::from_parser(self)?)),
             FALSE => Ok(Box::new(BoolExpression::from_parser(self)?)),
             NULL => Ok(Box::new(NullExpression::from_parser(self)?)),
-            _ => self.parse_unwrapped_expression(left),
+            _ => self.parse_unwrapped_expression(),
         }
     }
 
-    fn parse_unwrapped_expression(&mut self, left: &str) -> QueryResult<Box<dyn Expression>> {
+    fn parse_unwrapped_expression(&mut self) -> QueryResult<Box<dyn Expression>> {
+        let left = self.peak().unwrap_or_default();
         let mut chars = left.chars();
         match chars.next() {
             Some('0'..='9') | Some('-') => Ok(Box::new(NumberExpression::from_parser(self)?)),
@@ -1867,7 +2021,7 @@ mod tests {
 
         // add
         assert_composite_query!(
-            "select add(sum(\"a\"), sum(\"b\")) as \"sums\"",
+            "select sum(\"a\") + sum(\"b\") as \"sums\"",
             r#"[{"sums":20.0}]"#,
             r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
             r#"[{"a": 3}]"#
@@ -1875,7 +2029,7 @@ mod tests {
 
         // subtract
         assert_composite_query!(
-            "select neg(sum(\"a\"), sum(\"b\")) as \"subtract\"",
+            "select sum(\"a\") - sum(\"b\") as \"subtract\"",
             r#"[{"subtract":-8.0}]"#,
             r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
             r#"[{"a": 3}]"#
@@ -1883,7 +2037,7 @@ mod tests {
 
         // multiply
         assert_composite_query!(
-            "select mul(sum(\"a\"), sum(\"b\")) as \"multiply\"",
+            "select sum(\"a\") * sum(\"b\") as \"multiply\"",
             r#"[{"multiply":84.0}]"#,
             r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
             r#"[{"a": 3}]"#
@@ -1891,7 +2045,7 @@ mod tests {
 
         // divide
         assert_composite_query!(
-            "select div(sum(\"a\"), sum(\"b\")) as \"divide\"",
+            "select sum(\"a\")/sum(\"b\") as \"divide\"",
             r#"[{"divide":0.5}]"#,
             r#"[{"a": 1, "b": 10},{"a": 2, "b": 2}]"#,
             r#"[{"a": 3}]"#
@@ -1899,8 +2053,16 @@ mod tests {
 
         // mod
         assert_composite_query!(
-            "select mod(sum(\"a\"), sum(\"b\")) as \"modulus\"",
+            "select sum(\"a\")%sum(\"b\") as \"modulus\"",
             r#"[{"modulus":6.0}]"#,
+            r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
+            r#"[{"a": 3}]"#
+        );
+
+        // exponent
+        assert_composite_query!(
+            "select sum(\"a\")^(\"b\") as \"power\"",
+            r#"[{"power":2176782336}]"#,
             r#"[{"a": 1, "b": 12},{"a": 2, "b": 2}]"#,
             r#"[{"a": 3}]"#
         );

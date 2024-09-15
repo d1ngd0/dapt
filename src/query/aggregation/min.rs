@@ -23,7 +23,7 @@ impl MinAggregation {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<MinAggregation> {
         parser.consume_next(AGGREGATION_MIN)?;
         parser.consume_next(FN_OPEN)?;
-        let value = parser.parse_expression()?;
+        let value = parser.expression()?;
         parser.consume_next(FN_CLOSE)?;
 
         Ok(MinAggregation { value, min: None })

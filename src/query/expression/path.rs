@@ -1,10 +1,7 @@
 use std::{fmt::Display, ops::Deref};
 
 use crate::{
-    query::{
-        parser::{Parser, KEY_WRAP},
-        QueryResult,
-    },
+    query::{parser::Parser, QueryResult},
     Any, Dapt, Path,
 };
 

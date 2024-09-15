@@ -186,7 +186,7 @@ impl MapLiteral {
             // pase 'key': <expression>
             let key = parser.parse_string(IDENTIFIER_WRAP)?;
             parser.consume_next(MAP_CHILD_SET)?;
-            let value = parser.parse_expression()?;
+            let value = parser.expression()?;
 
             map.insert(key, value);
 
@@ -250,7 +250,7 @@ impl ArrayLiteral {
         parser.consume_next(ARRAY_WRAP)?;
         let mut arr = Vec::new();
         loop {
-            let value = parser.parse_expression()?;
+            let value = parser.expression()?;
             arr.push(value);
 
             match parser.token() {

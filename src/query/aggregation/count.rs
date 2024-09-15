@@ -30,7 +30,7 @@ impl CountAggregation {
 
         let expr = match parser.peak() {
             Some(FN_CLOSE) => None,
-            _ => Some(parser.parse_expression()?),
+            _ => Some(parser.expression()?),
         };
 
         parser.consume_next(FN_CLOSE)?;

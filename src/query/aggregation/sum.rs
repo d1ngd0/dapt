@@ -21,7 +21,7 @@ impl SumAggregation {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<SumAggregation> {
         parser.consume_next(AGGREGATION_SUM)?;
         parser.consume_next(FN_OPEN)?;
-        let value = parser.parse_expression()?;
+        let value = parser.expression()?;
         parser.consume_next(FN_CLOSE)?;
 
         Ok(SumAggregation { value, sum: None })

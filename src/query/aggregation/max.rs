@@ -23,7 +23,7 @@ impl MaxAggregation {
     pub fn from_parser(parser: &mut Parser) -> QueryResult<MaxAggregation> {
         parser.consume_next(AGGREGATION_MAX)?;
         parser.consume_next(FN_OPEN)?;
-        let value = parser.parse_expression()?;
+        let value = parser.expression()?;
         parser.consume_next(FN_CLOSE)?;
 
         Ok(MaxAggregation { value, max: None })

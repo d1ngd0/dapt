@@ -18,6 +18,7 @@ const TOKEN_MINUS: char = '-';
 const TOKEN_DIVIDE: char = '/';
 const TOKEN_MULTIPLY: char = '*';
 const TOKEN_MODULUS: char = '%';
+const TOKEN_EXPONENT: char = '^';
 const TOKEN_TICK: char = '`';
 
 pub struct Lexer<'a> {
@@ -163,6 +164,7 @@ impl<'a> Lexer<'a> {
                 | TOKEN_DIVIDE
                 | TOKEN_MULTIPLY
                 | TOKEN_MODULUS
+                | TOKEN_EXPONENT
                 | TOKEN_TICK => {
                     // if the previous token was an escape token, we just want to add this to the
                     // existing token

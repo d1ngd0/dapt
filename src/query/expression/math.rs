@@ -4,15 +4,9 @@ use crate::{Any, Dapt, Number};
 
 use super::Expression;
 
-use super::super::{
-    parser::{
-        Parser, FN_ADD, FN_CLOSE, FN_DIVIDE, FN_MINUS, FN_MODULUS, FN_MULTIPLY, FN_OPEN, FN_SEP,
-    },
-    QueryResult,
-};
 // Math expressions
 macro_rules! impl_math_op {
-    ($name:ident, $op:tt, $fn:ident) => {
+    ($name:ident, $op:tt) => {
         #[derive(Clone)]
         pub struct $name {
             left: Box<dyn Expression>,
@@ -20,15 +14,8 @@ macro_rules! impl_math_op {
         }
 
         impl $name {
-            pub fn from_parser(parser: &mut Parser) -> QueryResult<Self> {
-                parser.consume_next($fn)?;
-                parser.consume_next(FN_OPEN)?;
-                let left = parser.parse_expression()?;
-                parser.consume_next(FN_SEP)?;
-                let right = parser.parse_expression()?;
-                parser.consume_next(FN_CLOSE)?;
-
-                Ok($name { left, right })
+            pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> Self {
+                Self { left, right }
             }
         }
 
@@ -49,8 +36,60 @@ macro_rules! impl_math_op {
     };
 }
 
-impl_math_op!(ModulusExpression, %, FN_MODULUS);
-impl_math_op!(DivideExpression, /, FN_DIVIDE);
-impl_math_op!(MultiplyExpression, *, FN_MULTIPLY);
-impl_math_op!(AddExpression, +, FN_ADD);
-impl_math_op!(SubtractExpression, -, FN_MINUS);
+impl_math_op!(ModulusExpression, %);
+impl_math_op!(DivideExpression, /);
+impl_math_op!(MultiplyExpression, *);
+impl_math_op!(AddExpression, +);
+impl_math_op!(SubtractExpression, -);
+
+#[derive(Clone)]
+pub struct ExponentExpression {
+    left: Box<dyn Expression>,
+    right: Box<dyn Expression>,
+}
+
+impl ExponentExpression {
+    pub fn new(left: Box<dyn Expression>, right: Box<dyn Expression>) -> ExponentExpression {
+        ExponentExpression { left, right }
+    }
+}
+
+impl Expression for ExponentExpression {
+    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
+        let left = Number::try_from(self.left.evaluate(d)?).ok()?;
+        let right = Number::try_from(self.right.evaluate(d)?).ok()?;
+
+        let left: i64 = left.into();
+        let right: u32 = right.into();
+        Some(Any::I64(left.pow(right)))
+    }
+}
+
+impl Display for ExponentExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, stringify!(EXPONENT), self.right)
+    }
+}
+
+#[derive(Clone)]
+pub struct SubExpression {
+    expr: Box<dyn Expression>,
+}
+
+impl SubExpression {
+    pub fn new(expr: Box<dyn Expression>) -> Self {
+        Self { expr }
+    }
+}
+
+impl Expression for SubExpression {
+    fn evaluate<'a, 'b: 'a>(&'a self, d: &'b Dapt) -> Option<Any<'a>> {
+        self.expr.evaluate(d)
+    }
+}
+
+impl Display for SubExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({})", self.expr)
+    }
+}

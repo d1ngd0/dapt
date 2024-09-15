@@ -28,7 +28,7 @@ impl ExpressionAggregation {
     }
 
     pub fn from_parser(parser: &mut Parser) -> QueryResult<ExpressionAggregation> {
-        let expr = parser.parse_expression()?;
+        let expr = parser.expression()?;
         Ok(ExpressionAggregation::new(expr))
     }
 }

@@ -29,7 +29,7 @@ mod test {
     macro_rules! assert_expression {
         ( $source:expr, $expr:expr, $expected:expr) => {
             let mut parser = Parser::from($expr);
-            let expr = parser.parse_expression().unwrap();
+            let expr = parser.expression().unwrap();
             let d: Dapt = serde_json::from_str($source).unwrap();
             let result = expr.evaluate(&d).unwrap();
             assert_eq!(result, $expected);
@@ -39,11 +39,13 @@ mod test {
     #[test]
     fn test_expression() {
         assert_expression!(r#"{"a": 10}"#, "\"a\"", Any::U64(10));
-        assert_expression!(r#"{"a": 10}"#, "add(\"a\", 10)", Any::U64(20));
-        assert_expression!(r#"{"a": 10}"#, "neg(\"a\", 10)", Any::U64(0));
-        assert_expression!(r#"{"a": 10}"#, "mul(\"a\", 10)", Any::U64(100));
-        assert_expression!(r#"{"a": 10}"#, "div(\"a\", 5)", Any::U64(2));
-        assert_expression!(r#"{"a": 10}"#, "mod(\"a\", 4)", Any::USize(2));
+        assert_expression!(r#"{"a": 10}"#, "\"a\"+10", Any::U64(20));
+        assert_expression!(r#"{"a": 10}"#, "\"a\"-10", Any::U64(0));
+        assert_expression!(r#"{"a": 10}"#, "\"a\"*10", Any::U64(100));
+        assert_expression!(r#"{"a": 10}"#, "\"a\"/5", Any::U64(2));
+        assert_expression!(r#"{"a": 10}"#, "\"a\"%4", Any::USize(2));
+        // order of operations test
+        assert_expression!(r#"{"a": 10}"#, "(\"a\"*2+5^2-5)*2-79", Any::USize(1));
         assert_expression!(r#"{"a": "HELLO"}"#, "lower(\"a\")", "hello");
         assert_expression!(r#"{"a": "hello"}"#, "upper(\"a\")", "HELLO");
         assert_expression!(r#"{"a": " hello "}"#, "trim(\"a\")", "hello");

@@ -30,7 +30,7 @@ macro_rules! simple_string_fn {
             pub fn from_parser<'a>(p: &mut Parser<'a>) -> QueryResult<$name> {
                 p.consume_next($fn)?;
                 p.consume_next(FN_OPEN)?;
-                let value = p.parse_expression()?;
+                let value = p.expression()?;
                 p.consume_next(FN_CLOSE)?;
 
                 Ok($name { value })
@@ -135,9 +135,9 @@ impl StringConcat {
 
         let mut exprs = Vec::new();
 
-        exprs.push(p.parse_expression()?);
+        exprs.push(p.expression()?);
         while p.continue_if(FN_SEP) {
-            exprs.push(p.parse_expression()?);
+            exprs.push(p.expression()?);
         }
 
         p.consume_next(FN_CLOSE)?;
@@ -191,7 +191,7 @@ impl StringSplit {
         p.consume_next(FN_SPLIT)?;
         p.consume_next(FN_OPEN)?;
 
-        let value = p.parse_expression()?;
+        let value = p.expression()?;
         p.consume_next(FN_SEP)?;
         let delimiter = p.parse_string(STRING_WRAP)?;
 
