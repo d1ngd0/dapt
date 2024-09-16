@@ -2,7 +2,7 @@ use core::fmt;
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use cityhash::city_hash_64;
@@ -37,6 +37,9 @@ pub const ORDER_ASC: &str = "ASC";
 pub const ORDER_DESC: &str = "DESC";
 pub const LIMIT: &str = "LIMIT";
 pub const INTERVAL: &str = "INTERVAL";
+pub const EVICT: &str = "EVICT";
+pub const EMIT: &str = "EMIT";
+pub const ON: &str = "ON";
 pub const SUB_CONDITION: &str = "(";
 pub const SUB_CONDITION_END: &str = ")";
 pub const EQUAL: &str = "=";
@@ -152,21 +155,46 @@ impl GroupBy {
         group.process(d);
     }
 
-    fn collect(&mut self, having: &HavingClause) -> QueryResult<Vec<Dapt>> {
+    fn collect(
+        &mut self,
+        having: &HavingClause,
+        evict: &Evict,
+        emit_on: &EmitOn,
+    ) -> QueryResult<Vec<Dapt>> {
         let mut results = Vec::new();
+
+        let on_evict = match emit_on {
+            EmitOn::Evict => true,
+            EmitOn::Interval => false,
+        };
+
+        // set the deadline to now - the eviction.
+        // this creates a "static" timestamp so everything
+        // after is measured against this time.
+        let deadline = Instant::now() - evict.after;
+
         for group in self.groups.values_mut() {
+            // if we are emiting on eviction, and the group
+            // is not stale, we want to hold off on emiting
+            // the data.
+            if on_evict && !group.is_stale(deadline) {
+                continue;
+            }
+
+            // we are cleared to grab the data
             let d = group.collect()?;
-            match having.filter(&d) {
-                Ok(true) => {
-                    if !d.empty() {
-                        results.push(d)
-                    }
-                }
-                Ok(false) => (),
-                // TODO: handle the error here.
-                Err(_) => (),
+            if d.empty() {
+                continue;
+            }
+
+            // make sure the point matches the filter.
+            if having.filter(&d).unwrap_or(false) {
+                results.push(d)
             }
         }
+
+        // remove everything that's stale
+        self.groups.retain(|_k, v| !v.is_stale(deadline));
 
         Ok(results)
     }
@@ -371,6 +399,23 @@ impl Interval {
     }
 }
 
+#[derive(Clone)]
+struct Evict {
+    after: Duration,
+}
+
+#[derive(Clone)]
+enum EmitOn {
+    Interval,
+    Evict,
+}
+
+impl Default for EmitOn {
+    fn default() -> Self {
+        EmitOn::Interval
+    }
+}
+
 // Query is the parsed representation of a query. It holds a from, where, having
 // group by (which houses the select clause), order by and limit. The only thing required
 // to parse a query is the `SELECT` portion of the query. The rest is optional.
@@ -384,6 +429,8 @@ pub struct Query {
     order: OrderBy,
     limit: Option<Limit>,
     interval: Interval,
+    evict: Evict,
+    emit_on: EmitOn,
 }
 
 impl Query {
@@ -400,7 +447,9 @@ impl Query {
     }
 
     pub fn collect(&mut self) -> QueryResult<Vec<Dapt>> {
-        let mut set = self.group.collect(&self.having)?;
+        let mut set = self
+            .group
+            .collect(&self.having, &self.evict, &self.emit_on)?;
         self.order.sort(&mut set);
 
         if let Some(limit) = &self.limit {
@@ -440,6 +489,10 @@ impl Query {
                 order: OrderBy { fields: Vec::new() },
                 limit: None,
                 interval: self.interval.clone(),
+                evict: self.evict.clone(),
+                // we use interval here so that the combiner query doesn't return
+                // early on data.
+                emit_on: EmitOn::Interval,
             },
             // where can only be done at the composable step
             Query {
@@ -452,6 +505,8 @@ impl Query {
                 order: self.order.clone(),
                 limit: self.limit.clone(),
                 interval: self.interval.clone(),
+                evict: self.evict.clone(),
+                emit_on: self.emit_on.clone(),
             },
         )
     }
@@ -488,6 +543,7 @@ impl Display for Query {
 // so you can continue to use Select after collect is called.
 #[derive(Clone)]
 pub struct SelectClause {
+    last_updated: Instant,
     fields: Vec<Column>,
 }
 
@@ -498,6 +554,9 @@ impl SelectClause {
     }
 
     pub fn process(&mut self, d: &Dapt) {
+        // set the last update time forward a bit
+        self.last_updated = Instant::now();
+
         for col in self.fields.iter_mut() {
             col.agg.process(d);
         }
@@ -514,9 +573,20 @@ impl SelectClause {
         Ok(d.build())
     }
 
+    // is_stale returns if the group is out of date or not.
+    pub fn is_stale(&self, deadline: Instant) -> bool {
+        self.last_updated < deadline
+    }
+
     pub fn composable(&self) -> (SelectClause, SelectClause) {
-        let mut composable = SelectClause { fields: Vec::new() };
-        let mut combine = SelectClause { fields: Vec::new() };
+        let mut composable = SelectClause {
+            fields: Vec::new(),
+            last_updated: Instant::now(),
+        };
+        let mut combine = SelectClause {
+            fields: Vec::new(),
+            last_updated: Instant::now(),
+        };
 
         for col in self.fields.iter() {
             let (com, comb) = col.composable();
@@ -686,6 +756,12 @@ impl<'a> Parser<'a> {
         self.lex.token()
     }
 
+    pub fn must_token(&mut self) -> QueryResult<&str> {
+        self.lex
+            .token()
+            .ok_or_else(|| Error::UnexpectedEOF("expecting identifier".into()))
+    }
+
     pub fn consumed(&self) -> History {
         History::new(self.lex.consumed(), self.lex.future())
     }
@@ -695,58 +771,77 @@ impl<'a> Parser<'a> {
 
         // from is optional, so we can create an empty from cluase
         // if there is no value.
-        let from = match self.lex.peak() {
-            Some(v) if v.to_uppercase() == FROM => self.parse_from()?,
-            _ => FromClause(Vec::new()),
+        let from = if self.is_next(FROM) {
+            self.parse_from()?
+        } else {
+            FromClause(Vec::new())
         };
 
         // where is optional, so we can create an empty where cluase
         // if there is no value.
-        let where_clause = match self.lex.peak() {
-            Some(v) if v.to_uppercase() == WHERE => self.parse_where()?,
-            _ => WhereClause {
+        let where_clause = if self.is_next(WHERE) {
+            self.parse_where()?
+        } else {
+            WhereClause {
                 condition: Conjunction::Single(Box::new(NoopCondition::default())),
-            },
-        };
-
-        // having is also optional
-        let having = match self.lex.peak() {
-            Some(v) if v.to_uppercase() == HAVING => self.parse_having()?,
-            _ => HavingClause {
-                condition: Conjunction::Single(Box::new(NoopCondition::default())),
-            },
-        };
-
-        let group = match self.lex.peak() {
-            Some(v) if v.to_uppercase() == GROUP => self.parse_group(select)?,
-            _ => {
-                let mut groups = HashMap::new();
-                groups.insert(0, select.clone());
-
-                GroupBy {
-                    fields: Vec::new(),
-                    groups,
-                    template: select,
-                }
             }
         };
 
-        let order = match self.lex.peak() {
-            Some(v) if v.to_uppercase() == ORDER => self.parse_order()?,
-            _ => OrderBy { fields: Vec::new() },
+        // having is also optional
+        let having = if self.is_next(HAVING) {
+            self.parse_having()?
+        } else {
+            HavingClause {
+                condition: Conjunction::Single(Box::new(NoopCondition::default())),
+            }
         };
 
-        let limit = match self.lex.peak() {
-            Some(v) if v.to_uppercase() == LIMIT => Some(self.parse_limit()?),
-            _ => None,
+        let group = if self.is_next(GROUP) {
+            self.parse_group(select)?
+        } else {
+            let mut groups = HashMap::new();
+            groups.insert(0, select.clone());
+
+            GroupBy {
+                fields: Vec::new(),
+                groups,
+                template: select,
+            }
         };
 
-        let interval = match self.lex.peak() {
-            Some(v) if v.to_uppercase() == INTERVAL => self.parse_interval()?,
-            _ => Interval {
+        let order = if self.is_next(ORDER) {
+            self.parse_order()?
+        } else {
+            OrderBy { fields: Vec::new() }
+        };
+
+        let limit = if self.is_next(LIMIT) {
+            Some(self.parse_limit()?)
+        } else {
+            None
+        };
+
+        let interval = if self.is_next(INTERVAL) {
+            self.parse_interval()?
+        } else {
+            Interval {
                 last_output: SystemTime::now(),
                 duration: Duration::from_secs(0),
-            },
+            }
+        };
+
+        let evict = if self.is_next(EVICT) {
+            self.parse_evict()?
+        } else {
+            Evict {
+                after: interval.duration,
+            }
+        };
+
+        let emit_on = if self.is_next(EMIT) {
+            self.parse_emit_on()?
+        } else {
+            EmitOn::default()
         };
 
         let leftovers = self.lex.future().trim();
@@ -765,6 +860,8 @@ impl<'a> Parser<'a> {
             order,
             limit,
             interval,
+            evict,
+            emit_on,
         })
     }
 
@@ -782,6 +879,28 @@ impl<'a> Parser<'a> {
         self.consume_next(LIMIT)?;
         let count = self.parse_positive_number()?;
         Ok(Limit { count })
+    }
+
+    fn parse_evict(&mut self) -> QueryResult<Evict> {
+        self.consume_next(EVICT)?;
+        let duration = self.parse_duration(STRING_WRAP)?;
+        Ok(Evict { after: duration })
+    }
+
+    fn parse_emit_on(&mut self) -> QueryResult<EmitOn> {
+        self.consume_next(EMIT)?;
+        self.consume_next(ON)?;
+
+        let tok = self.must_token()?;
+        let tok = tok.to_uppercase();
+        match &tok[..] {
+            INTERVAL => Ok(EmitOn::Interval),
+            EVICT => Ok(EmitOn::Evict),
+            _ => Err(Error::InvalidQuery(format!(
+                "unknown emit on directive {}",
+                tok
+            ))),
+        }
     }
 
     pub fn continue_if(&mut self, tok: &str) -> bool {
@@ -885,7 +1004,10 @@ impl<'a> Parser<'a> {
             fields.push(self.parse_column()?);
         }
 
-        Ok(SelectClause { fields })
+        Ok(SelectClause {
+            fields,
+            last_updated: Instant::now(),
+        })
     }
 
     // TODO: you need to change this to a key.
@@ -1370,16 +1492,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_string(&mut self, wrap: &str) -> QueryResult<String> {
-        match self.lex.token() {
-            Some(val) if val == wrap => (),
-            Some(tok) => {
-                return Err(Error::with_history(
-                    &format!("expected {wrap} but got {tok}"),
-                    self.consumed(),
-                ))
-            }
-            None => return Err(Error::unexpected_eof(self.consumed())),
-        }
+        self.consume_next(wrap)?;
 
         let value = self
             .lex
@@ -1388,14 +1501,27 @@ impl<'a> Parser<'a> {
 
         // consume the final " token, and return. If we get a different token
         // or hit EOF we can return an error
-        match self.lex.token() {
-            Some(val) if val == wrap => Ok(value.to_string()),
-            Some(tok) => Err(Error::with_history(
-                &format!("expected {wrap} but got {tok}"),
-                self.consumed(),
-            )),
-            None => Err(Error::unexpected_eof(self.consumed())),
+        self.consume_next(wrap)?;
+        Ok(value.to_string())
+    }
+
+    pub fn parse_duration(&mut self, wrap: &str) -> QueryResult<Duration> {
+        let wrapped = self.is_next(wrap);
+        if wrapped {
+            self.consume()
         }
+
+        let value = self
+            .lex
+            .token()
+            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
+
+        if wrapped {
+            self.consume_next(wrap)?;
+        }
+
+        parse_duration::parse(value)
+            .map_err(|err| Error::InvalidQuery(format!("invalid duration {}", err)))
     }
 
     // is_next will check to see if the next value matches the supplied

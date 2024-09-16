@@ -118,9 +118,8 @@ impl Dapt {
 
     pub fn empty(&self) -> bool {
         for ptr in self.ptrs.iter() {
-            match ptr.val_at(&self.b) {
-                Some(_) => return false,
-                None => (),
+            if ptr.val_at(&self.b).is_some() {
+                return false;
             }
         }
 
