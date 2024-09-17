@@ -2,7 +2,7 @@ use core::fmt;
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
-    time::{Duration, Instant, SystemTime},
+    time::Duration,
 };
 
 use cityhash::city_hash_64;
@@ -22,6 +22,12 @@ use super::{
     expression::*,
     lexor::Lexer,
 };
+
+#[cfg(test)]
+use mock_instant::global::Instant;
+
+#[cfg(not(test))]
+use std::time::Instant;
 
 pub const SELECT: &str = "SELECT";
 pub const SELECT_SEP: &str = ",";
@@ -381,14 +387,14 @@ impl Display for FromClause {
 
 #[derive(Clone)]
 struct Interval {
-    last_output: SystemTime,
+    last_output: Instant,
     duration: Duration,
 }
 
 impl Interval {
     fn should_fire_and_reset(&mut self) -> bool {
-        let now = SystemTime::now();
-        let elapsed = now.duration_since(self.last_output).unwrap();
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_output);
 
         if elapsed >= self.duration {
             self.last_output = now;
@@ -575,7 +581,7 @@ impl SelectClause {
 
     // is_stale returns if the group is out of date or not.
     pub fn is_stale(&self, deadline: Instant) -> bool {
-        self.last_updated < deadline
+        self.last_updated <= deadline
     }
 
     pub fn composable(&self) -> (SelectClause, SelectClause) {
@@ -604,7 +610,6 @@ impl SelectClause {
     // expressions provided does not match a selected column
     pub fn alias_of(&self, expr: &Box<dyn Expression>) -> QueryResult<Box<dyn Expression>> {
         for col in self.fields.iter() {
-            println!("{} == {}", col.alias.to_string(), expr.to_string());
             if col.alias.to_string() == expr.to_string() {
                 return col.agg.expression();
             }
@@ -825,7 +830,7 @@ impl<'a> Parser<'a> {
             self.parse_interval()?
         } else {
             Interval {
-                last_output: SystemTime::now(),
+                last_output: Instant::now(),
                 duration: Duration::from_secs(0),
             }
         };
@@ -867,11 +872,11 @@ impl<'a> Parser<'a> {
 
     fn parse_interval(&mut self) -> QueryResult<Interval> {
         self.consume_next(INTERVAL)?;
-        let duration = self.parse_string(STRING_WRAP)?;
+        let duration = self.parse_duration(STRING_WRAP)?;
 
         Ok(Interval {
-            last_output: SystemTime::now(),
-            duration: parse_duration::parse(&duration)?,
+            last_output: Instant::now(),
+            duration,
         })
     }
 
@@ -927,8 +932,6 @@ impl<'a> Parser<'a> {
                 Err(Error::NotFound) => Ok(alias), // the alias is an expression, not in the select
                 Err(err) => Err(err), // there was a real error
             }?;
-
-            println!("{}", expr);
 
             fields.push(expr);
 
@@ -986,9 +989,9 @@ impl<'a> Parser<'a> {
 
         let mut sources = Vec::new();
 
-        sources.push(self.parse_string(IDENTIFIER_WRAP)?);
+        sources.push(self.parse_identifier(IDENTIFIER_WRAP)?);
         while self.continue_if(FROM_SEP) {
-            sources.push(self.parse_string(IDENTIFIER_WRAP)?);
+            sources.push(self.parse_identifier(IDENTIFIER_WRAP)?);
         }
 
         Ok(FromClause(sources))
@@ -1491,6 +1494,26 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // parse_identifier allows you to parse a string with an optional wrapping
+    // token.
+    fn parse_identifier(&mut self, wrap: &str) -> QueryResult<String> {
+        let wrapped = self.is_next(wrap);
+        if wrapped {
+            self.consume()
+        }
+
+        let value = self
+            .lex
+            .token()
+            .ok_or_else(|| Error::unexpected_eof(self.consumed()))?;
+
+        if wrapped {
+            self.consume_next(wrap)?;
+        }
+
+        Ok(String::from(value))
+    }
+
     pub fn parse_string(&mut self, wrap: &str) -> QueryResult<String> {
         self.consume_next(wrap)?;
 
@@ -1639,6 +1662,7 @@ impl Hasher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mock_instant::global::MockClock;
 
     macro_rules! assert_condition {
         ( $source:expr, $expr:expr, $expected:expr) => {
@@ -2239,5 +2263,100 @@ mod tests {
             r#"SELECT "a" WHERE "chicken" == 'a' WHERE "turkey" > 19 "#,
             "Invalid query: [ SELECT \"a\" WHERE \"chicken\" == 'a' █ WHERE \"turkey\" > 19  ]: unexpected trailing content: WHERE \"turkey\" > 19"
         );
+    }
+
+    macro_rules! assert_query {
+        ($query:expr, $expected:expr, $($source:expr),+) => {
+            // create our query
+            let mut query = Query::new($query)?;
+            // make it composable
+            let (mut composable, mut combine) = query.composite();
+
+            println!("testing\n\tquery: {}\n\tcomposite: {}\n\tcombiner: {}", query, composable, combine);
+
+            MockClock::set_time(query.interval.duration*100);
+            assert_ne!(query.interval.duration, Duration::from_secs(0));
+
+            // each source coming in here will be an array of values, this emulates
+            // having multiple datasets.
+            let sources = vec![$(serde_json::from_str::<Dapt>($source).unwrap()),+];
+            let expected = serde_json::from_str::<Dapt>($expected).unwrap();
+            let mut expected = expected.sub("[]")?;
+
+            assert_eq!(expected.len(), sources.len(), "Results must match sources");
+
+            let mut x = 0;
+            for d in sources {
+                for sd in d.sub("[]")? {
+                    query.process(&sd)?;
+                    composable.process(&sd)?;
+                }
+
+                // take the aggregates and pass it into the combiner
+                let res = composable.collect()?;
+                for sd in res {
+                    combine.process(&sd)?;
+                }
+
+                let expected_result = serde_json::to_string(&expected.next().unwrap()).unwrap();
+                let query_result = serde_json::to_string(&query.collect().unwrap()).unwrap();
+                let combine_result = serde_json::to_string(&combine.collect().unwrap()).unwrap();
+
+                println!("set {}\n\texpected: {}\n\tquery: {}\n\tcombine: {}\n\t", x, expected_result, query_result, combine_result);
+                assert_eq!(expected_result, query_result, "normal query [set: {}]", x);
+                assert_eq!(expected_result, combine_result, "combine query [set: {}]", x);
+
+                MockClock::advance(query.interval.duration);
+                x += 1;
+            }
+        };
+    }
+
+    #[test]
+    fn test_the_query() -> QueryResult<()> {
+        assert_query!(
+            r#"SELECT count() as count, "a" FROM logs group by "a" INTERVAL 1s EVICT 2s"#,
+            r#"[
+                [
+                    {"count":3,"a":"something"}
+                ],
+                [
+                    {"count":2,"a":"something"}
+                ],
+                [
+                    {"count":0,"a":"something"}
+                ]
+            ]"#,
+            r#"[
+                {"a":"something"},
+                {"a":"something"},
+                {"a":"something"}
+            ]"#,
+            r#"[
+                {"a":"something"},
+                {"a":"something"}
+            ]"#,
+            r#"[]"#
+        );
+
+        assert_query!(
+            r#"SELECT count() as count, "a" FROM logs group by "a" INTERVAL 1m EMIT ON EVICT"#,
+            r#"[
+                [],
+                [{"count":2,"a":"something"}],
+                []
+            ]"#,
+            r#"[
+                {"a":"something"},
+                {"a":"something"},
+                {"a":"nothing"}
+            ]"#,
+            r#"[
+                {"a":"nothing"},
+                {"a":"nothing"}
+            ]"#,
+            r#"[]"#
+        );
+        Ok(())
     }
 }

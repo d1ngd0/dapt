@@ -244,6 +244,12 @@ impl Dapt {
         Ok(d)
     }
 
+    // len returns the number of values the dapt packet is pointing at in the
+    // document.
+    pub fn len(&self) -> usize {
+        self.ptrs.len()
+    }
+
     fn find<F: FnMut(BReference)>(&self, path: Option<&Path>, f: &mut F) {
         match path {
             // if there is a path, execute it to find the appropraite pointers

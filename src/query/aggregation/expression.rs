@@ -16,15 +16,26 @@ use super::{
 #[derive(Clone)]
 pub struct ExpressionAggregation {
     expr: Box<dyn Expression>,
-    value: Option<Any<'static>>,
+    // value holds the last value seen since the last call to result
+    // it gets reset each time, and is the freshest data
+    //
     // this is static? no, it's not. We just have make sure not to use
     // actual reference values in here since we can force an any
     // into holding the value
+    value: Option<Any<'static>>,
+    // fill holds the last result value seen. If no value was seen it
+    // keeps it's original value. If the aggregations has ever seen data
+    // it will be here.
+    fill: Option<Any<'static>>,
 }
 
 impl ExpressionAggregation {
     fn new(expr: Box<dyn Expression>) -> Self {
-        Self { expr, value: None }
+        Self {
+            expr,
+            value: None,
+            fill: None,
+        }
     }
 
     pub fn from_parser(parser: &mut Parser) -> QueryResult<ExpressionAggregation> {
@@ -56,8 +67,12 @@ impl Aggregation for ExpressionAggregation {
         };
     }
 
+    // result returns the expression result to the caller. When returning
+    // it prefers to return the last value, but if no values were seen
+    // previously it returns the last value seen ever.
     fn result<'a>(&'a mut self) -> Option<Any<'a>> {
-        let v = self.value.take()?;
+        let v = self.value.take().or(self.fill.take())?;
+        self.fill = Some(v.clone());
         Some(Any::from(v))
     }
 
